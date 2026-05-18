@@ -17,6 +17,7 @@ class Agent:
         self.backend = get_backend()
         self.actions = ActionRunner()
         self.max_tokens = max_tokens
+        self.end_pattern = "[[[END]]]<<<<<>>>>>"
         self.memory = []
 
     def initialize(self, text: str, context: str = "") -> None:
@@ -29,14 +30,14 @@ Context:
 Answer:
 {text}
 
-Take a summary when you got the final answer.
+Think before taking action. Take a summary when you got the final answer.
+Return {self.end_pattern} when you think the conversation can be ended.
 """
         self.memory = [prompt]
 
     def step(self) -> None:
         prompt = "\n\n".join(self.memory)
-        resp = self.backend.get_response(prompt, self.max_tokens, stream_print=False)
-        print(resp, flush=True)
+        resp = self.backend.get_response(prompt, self.max_tokens, stream_print=True)
         self.memory.append(resp)
 
     def maybe_take_action(self):
@@ -49,14 +50,18 @@ Take a summary when you got the final answer.
         else:
             return None
 
+    def is_end(self) -> bool:
+        return self.end_pattern in self.memory[-1]
+
     def run(self, text: str):
         self.initialize(text)
         self.step()
         while True:
-            if self.maybe_take_action():
-                self.step()
-            else:
+            if self.is_end():
+                print("", flush=True)
                 return
+            self.maybe_take_action()
+            self.step()
 
 
 if __name__ == "__main__":
