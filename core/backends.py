@@ -33,7 +33,7 @@ class AnthropicBackend(AgentBackend):
         )
         self.model = MODEL_NAME
     
-    def get_response(self, content: str, max_tokens: int = 65536, stream_print: bool = True):
+    def get_response(self, content: str, max_tokens: int = 65536, stream_print: bool = True) -> str:
         if not stream_print:
             if max_tokens <= 16384:
                 response = self.client.messages.create(
@@ -52,6 +52,7 @@ class AnthropicBackend(AgentBackend):
                     for text in stream.text_stream:
                         out_str += text
         else:
+            out_str = ""
             with self.client.messages.stream(
                     model=self.model,
                     max_tokens=max_tokens,
@@ -59,7 +60,8 @@ class AnthropicBackend(AgentBackend):
                 ) as stream:
                     for text in stream.text_stream:
                         print(text, end="", flush=True)
-            return ""
+                        out_str += text
+            return out_str
         return out_str
 
 
@@ -74,7 +76,7 @@ class OpenaiBackend(AgentBackend):
         )
         self.model = MODEL_NAME
     
-    def get_response(self, content: str, max_tokens: int = 65536, stream_print: bool = True):
+    def get_response(self, content: str, max_tokens: int = 65536, stream_print: bool = True) -> str:
         if not stream_print:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -112,4 +114,4 @@ def get_backend():
 
 if __name__ == '__main__':
     backend = get_backend()
-    print(backend.get_response(sys.argv[1], stream_print=True))
+    backend.get_response(sys.argv[1], stream_print=True)

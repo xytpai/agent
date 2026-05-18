@@ -11,3 +11,9 @@ export MODEL_NAME=${YOUR_LLM_MODEL_NAME}
 
 python3 core/backends.py "Introduce yourself"
 ```
+
+### Run agent
+
+```bash
+python3 core/agent.py --input=input.txt
+```
