@@ -1,1 +1,1 @@
-帮我看下 ../flydsl-examples/gdr.py 怎么写的
+帮我总结下../flydsl-examples/下面有哪些kernel
