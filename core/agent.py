@@ -19,7 +19,7 @@ class Agent:
         self.max_tokens = max_tokens
         self.memory = []
 
-    def user_ask(self, text: str, context: str = "") -> None:
+    def initialize(self, text: str, context: str = "") -> None:
         prompt = f"""Information:
 {self.actions.desc()}
 
@@ -28,18 +28,21 @@ Context:
 
 Answer:
 {text}
+
+Take a summary when you got the final answer.
 """
         self.memory = [prompt]
 
     def step(self) -> None:
         prompt = "\n\n".join(self.memory)
-        resp = self.backend.get_response(prompt, self.max_tokens, stream_print=True)
+        resp = self.backend.get_response(prompt, self.max_tokens, stream_print=False)
+        print(resp, flush=True)
         self.memory.append(resp)
 
     def maybe_take_action(self):
         res = self.actions(self.memory[-1])
         if res:
-            res_ = f"\nSYSTEM-ACTION_RESULTS: {res}\n"
+            res_ = f"\n\nSYSTEM-ACTION_RESULTS: {res}\n\n"
             print(res_, flush=True)
             self.memory.append(res_)
             return res
@@ -47,9 +50,9 @@ Answer:
             return None
 
     def run(self, text: str):
-        self.user_ask(text)
+        self.initialize(text)
+        self.step()
         while True:
-            self.step()
             if self.maybe_take_action():
                 self.step()
             else:

@@ -31,7 +31,7 @@ def run_cmd(cmd: str) -> str:
         )
         return result.stdout
     except subprocess.CalledProcessError as e:
-        return f"returncode:{e.returncode}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}\n"
+        return f"returncode:{e.returncode}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}"
     except Exception:
         return traceback.format_exc()
 
