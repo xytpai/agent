@@ -31,7 +31,9 @@ Answer:
 {text}
 
 Think before taking action. Take a summary when you got the final answer.
-Return {self.end_pattern} when you think the conversation can be ended.
+Return {self.end_pattern} when you think the entire conversation can be ended.
+NOTE: when you need to take an action, first return the action string directly.
+If no useful information in SYSTEM-ACTION_RESULTS, think about why your action failed and try again !!!
 """
         self.memory = [prompt]
 
