@@ -22,7 +22,8 @@ class Agent:
         self.important_note = f"""IMPORTANT:
 Think before taking action. Take a summary when you got the final answer.
 Return {self.end_pattern} when you think the entire conversation can be ended.
-NOTE: when you need to take an action, first return the action string directly, then stop immediately.
+NOTE: when you need to take an action, first return the action string directly, then stop immediately (don't type {self.end_pattern}).
+Because the action will only be executed after this response is finished.
 If no useful information in SYSTEM-ACTION_RESULTS, think about why your action failed and try again !!!
 """
 
