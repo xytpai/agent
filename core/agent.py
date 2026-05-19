@@ -19,6 +19,12 @@ class Agent:
         self.max_tokens = max_tokens
         self.end_pattern = "[[[END]]]<<<<<>>>>>"
         self.memory = []
+        self.important_note = f"""IMPORTANT:
+Think before taking action. Take a summary when you got the final answer.
+Return {self.end_pattern} when you think the entire conversation can be ended.
+NOTE: when you need to take an action, first return the action string directly, then stop immediately.
+If no useful information in SYSTEM-ACTION_RESULTS, think about why your action failed and try again !!!
+"""
 
     def initialize(self, text: str, context: str = "") -> None:
         prompt = f"""Information:
@@ -29,17 +35,14 @@ Context:
 
 Answer:
 {text}
-
-Think before taking action. Take a summary when you got the final answer.
-Return {self.end_pattern} when you think the entire conversation can be ended.
-NOTE: when you need to take an action, first return the action string directly.
-If no useful information in SYSTEM-ACTION_RESULTS, think about why your action failed and try again !!!
 """
         self.memory = [prompt]
 
     def step(self) -> None:
         prompt = "\n\n".join(self.memory)
-        resp = self.backend.get_response(prompt, self.max_tokens, stream_print=True)
+        resp = self.backend.get_response(
+            prompt + "\n\n" + self.important_note, self.max_tokens, stream_print=True
+        )
         self.memory.append(resp)
 
     def maybe_take_action(self):
