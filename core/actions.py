@@ -57,7 +57,12 @@ class ActionRunner:
         if m:
             action_name = m.group(1)
             action_args = m.group(2)
-            return str(self.actions[action_name]["func"](action_args))
+            if self.actions.get(action_name, None):
+                return str(self.actions[action_name]["func"](action_args))
+            else:
+                return "Invalid action name"
+        if "<<<" in text and ">>>" in text and "[[[" in text and "]]]" in text:
+            return f"You seem to be trying to call an action but not using correctly. Please correct it: (Output [[[action_name]]]<<<<<action_args>>>>> to indicate that an action is required.)"
         return None
 
     def desc(self) -> str:
