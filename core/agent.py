@@ -23,6 +23,7 @@ class Agent:
         self.react_note = f"""IMPORTANT:
 You are running in a ReAct loop: Thought -> Action -> Observation -> Thought.
 When you need to use a tool, output exactly one action and then stop immediately.
+Never output a second Thought or Action before the system returns an Observation.
 Use this format:
 Thought: explain the next step briefly.
 Action: one available action name
@@ -64,7 +65,7 @@ User task:
 
     def maybe_take_action(self):
         res = self.actions(self.memory[-1])
-        if res:
+        if res is not None:
             res_ = f"\n\nObservation: {res}\n\n"
             print(res_, flush=True)
             self.memory.append(res_)
