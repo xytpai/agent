@@ -141,6 +141,42 @@ class ActionRunner:
                 return f"Invalid action name: {action_name}"
         return None
 
+    def trim_to_first_action(self, text: str) -> str:
+        text = self._strip_leading_observation(text)
+        action_match = self.action_pattern.search(text)
+        if not action_match:
+            return text
+
+        tail = text[action_match.end() :]
+        action_input_match = self.action_input_pattern.search(tail)
+        if not action_input_match:
+            return text[: action_match.end()].rstrip()
+
+        action_input_start = action_match.end() + action_input_match.end()
+        action_input = text[action_input_start:]
+        fenced_match = re.match(
+            r"(?ims)\s*```[^\n]*\n.*?^\s*```\s*",
+            action_input,
+        )
+        if fenced_match:
+            return text[: action_input_start + fenced_match.end()].rstrip()
+
+        next_block = re.search(
+            r"(?im)^\s*(?:Thought|Action|Observation|Final Answer)\s*:",
+            action_input,
+        )
+        if next_block:
+            return text[: action_input_start + next_block.start()].rstrip()
+        return text.rstrip()
+
+    def _strip_leading_observation(self, text: str) -> str:
+        return re.sub(
+            r"(?is)^\s*Observation\s*:\s*(?=(?:Thought|Action|Final Answer)\s*:)",
+            "",
+            text,
+            count=1,
+        )
+
     def parse_action(self, text: str):
         action_matches = list(self.action_pattern.finditer(text))
         if not action_matches:

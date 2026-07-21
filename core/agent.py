@@ -24,6 +24,7 @@ class Agent:
 You are running in a ReAct loop: Thought -> Action -> Observation -> Thought.
 When you need to use a tool, output exactly one action and then stop immediately.
 Never output a second Thought or Action before the system returns an Observation.
+Never write Observation yourself; Observation is written only by the system after an action runs.
 Use this format:
 Thought: explain the next step briefly.
 Action: one available action name
@@ -58,8 +59,10 @@ User task:
     def step(self) -> str:
         prompt = "\n\n".join(self.memory)
         resp = self.backend.get_response(
-            prompt + "\n\n" + self.react_note, self.max_tokens, stream_print=True
+            prompt + "\n\n" + self.react_note, self.max_tokens, stream_print=False
         )
+        resp = self.actions.trim_to_first_action(resp)
+        print(resp, end="", flush=True)
         self.memory.append(resp)
         return resp
 
