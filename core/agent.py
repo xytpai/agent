@@ -58,23 +58,28 @@ User task:
 
     def step(self) -> str:
         prompt = "\n\n".join(self.memory)
-        resp = self.backend.get_response(
-            prompt + "\n\n" + self.react_note, self.max_tokens, stream_print=False
-        )
-        resp = self.actions.trim_to_first_action(resp)
-        print(resp, end="", flush=True)
+        resp_chunks = []
+        for chunk in self.backend.stream_response(
+            prompt + "\n\n" + self.react_note, self.max_tokens
+        ):
+            resp_chunks.append(chunk)
+            print(chunk, end="", flush=True)
+        resp = "".join(resp_chunks)
         self.memory.append(resp)
         return resp
 
     def maybe_take_action(self):
         res = self.actions(self.memory[-1])
         if res is not None:
-            res_ = f"\n\nObservation: {res}\n\n"
-            print(res_, flush=True)
-            self.memory.append(res_)
+            self.observe(res)
             return res
         else:
             return None
+
+    def observe(self, text: str) -> None:
+        observation = f"\n\nObservation: {text}\n\n"
+        print(observation, flush=True)
+        self.memory.append(observation)
 
     def is_end(self) -> bool:
         last_message = self.memory[-1]
@@ -87,27 +92,37 @@ User task:
 
     def run(self, text: str):
         self.initialize(text)
-        for _ in range(self.max_steps):
-            self.step()
-            if self.is_end():
-                print("", flush=True)
-                return
-            if self.maybe_take_action():
-                continue
-            reminder = (
-                "\n\nObservation: No valid action was found. Continue with either a valid "
-                "ReAct action or a Final Answer.\n\n"
-            )
-            print(reminder, flush=True)
-            self.memory.append(reminder)
+        state = "model"
+        steps = 0
 
-        reminder = (
-            f"\n\nObservation: Reached max_steps={self.max_steps}. "
-            "Stop and provide the best final answer from the collected observations.\n\n"
-        )
-        print(reminder, flush=True)
-        self.memory.append(reminder)
-        self.step()
+        while state != "done":
+            if state == "model":
+                if steps >= self.max_steps:
+                    state = "max_steps"
+                else:
+                    steps += 1
+                    self.step()
+                    state = "done" if self.is_end() else "action"
+
+            elif state == "action":
+                state = "model" if self.maybe_take_action() is not None else "repair"
+
+            elif state == "repair":
+                self.observe(
+                    "No valid action was found. Continue with either a valid "
+                    "ReAct action or a Final Answer."
+                )
+                state = "model"
+
+            elif state == "max_steps":
+                self.observe(
+                    f"Reached max_steps={self.max_steps}. Stop and provide the best final "
+                    "answer from the collected observations."
+                )
+                self.step()
+                state = "done"
+
+        print("", flush=True)
 
 
 if __name__ == "__main__":
