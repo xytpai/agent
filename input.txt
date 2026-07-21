@@ -1,1 +1,1 @@
-帮我总结下../flydsl-examples/下面有哪些kernel
+帮我重装下pytorch

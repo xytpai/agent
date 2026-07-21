@@ -2,6 +2,7 @@ import re
 import inspect
 import traceback
 import subprocess
+from dataclasses import dataclass
 
 
 def python_code(code: str) -> str:
@@ -42,9 +43,17 @@ GLOBAL_ACTIONS = [
 ]
 
 
+@dataclass
+class ActionCall:
+    name: str
+    args: str
+
+
 class ActionRunner:
     def __init__(self):
-        self.pattern = r"\[\[\[(.*?)\]\]\]<<<<<([\s\S]*?)>>>>>"
+        self.react_pattern = re.compile(
+            r"(?ims)^\s*Action\s*:\s*([A-Za-z_]\w*)\s*$\s*^Action\s*Input\s*:\s*([\s\S]*)"
+        )
         global GLOBAL_ACTIONS
         self.actions = {}
         for function in GLOBAL_ACTIONS:
@@ -53,20 +62,52 @@ class ActionRunner:
             self.actions[name] = {"name": name, "desc": desc, "func": function}
 
     def __call__(self, text: str):
-        m = re.match(self.pattern, text)
-        if m:
-            action_name = m.group(1)
-            action_args = m.group(2)
+        action_call = self.parse_action(text)
+        if action_call:
+            action_name = action_call.name
+            action_args = action_call.args
             if self.actions.get(action_name, None):
-                return str(self.actions[action_name]["func"](action_args))
+                output = str(self.actions[action_name]["func"](action_args))
+                return output if output else "[action returned empty output]"
             else:
-                return "Invalid action name"
-        if "<<<" in text and ">>>" in text and "[[[" in text and "]]]" in text:
-            return f"You seem to be trying to call an action but not using correctly. Please correct it: (Output [[[action_name]]]<<<<<action_args>>>>> to indicate that an action is required.)"
+                return f"Invalid action name: {action_name}"
         return None
 
+    def parse_action(self, text: str):
+        react_match = self.react_pattern.search(text)
+        if not react_match:
+            return None
+
+        action_input = react_match.group(2)
+        action_input = re.split(
+            r"(?im)^\s*(?:Observation|Final Answer)\s*:",
+            action_input,
+            maxsplit=1,
+        )[0]
+        return ActionCall(
+            name=react_match.group(1).strip(),
+            args=self._clean_action_input(action_input),
+        )
+
+    def _clean_action_input(self, text: str) -> str:
+        text = text.strip()
+        if not text.startswith("```"):
+            return text
+
+        lines = text.splitlines()
+        if len(lines) >= 2 and lines[-1].strip() == "```":
+            return "\n".join(lines[1:-1]).rstrip()
+        return text
+
     def desc(self) -> str:
-        text_head = """Output [[[$ACTION]]]<<<<<$ARGS>>>>> to indicate that an action is required.
+        text_head = """Use the ReAct format when an action is required:
+Thought: explain what you need to do next.
+Action: $ACTION
+Action Input:
+```text
+$ARGS
+```
+
 Below are the available $ACTION options along with their descriptions and code:\n\n"""
         text_actions = []
         for key, value in self.actions.items():
