@@ -15,5 +15,5 @@ python3 core/backends.py "Introduce yourself"
 ### Run agent
 
 ```bash
-python3 core/agent.py --input=input.txt --history=new
+python3 core/agent.py --input=input.txt --history=new 2>&1 | tee log
 ```
