@@ -1,1 +1,1 @@
-帮我更新一下 ../flydsl-examples 并且跑gemm 测试看看，你可能需要更新flydsl(build install)
+在往上搜一下今天的纳斯达克股票信息，然后给我一个汇总分析
