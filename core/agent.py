@@ -1,7 +1,5 @@
-import os
 import argparse
 from datetime import datetime
-from pathlib import Path
 
 try:
     from .backends import get_backend
@@ -9,13 +7,6 @@ try:
 except ImportError:
     from backends import get_backend
     from actions import ActionRunner
-
-base_dir = Path(__file__).resolve().parent
-temp_dir = base_dir / "../temp"
-temp_dir.mkdir(parents=True, exist_ok=True)
-context_file = os.path.join(temp_dir, "context.txt")
-_env = os.environ.copy()
-_env["TORCH_CPP_LOG_LEVEL"] = "ERROR"
 
 
 class Agent:
@@ -26,31 +17,35 @@ class Agent:
         self.max_steps = max_steps
         self.memory = []
         self.react_note = """IMPORTANT:
-You are running in a ReAct loop: Thought -> Action -> Observation -> Thought.
+You are running in a ReAct loop:
+<|thought|>...<\\thought|> -> <|action|>...<\\action|> ->
+<|observation|>...<\\observation|> -> <|thought|>...<\\thought|>.
+Every opening tag must have its matching closing tag.
 When you need to use a tool, output exactly one action and then stop immediately.
-Never output a second Thought or Action before the system returns an Observation.
-Never write Observation yourself; Observation is written only by the system after an action runs.
-Never repeat or quote a previous Action block in your response.
-After the closing Action Input fence, output nothing else and wait for Observation.
+Never output a second paired thought or action before the system returns an observation.
+Never write an observation yourself; only the system writes it after an action runs.
+Never repeat or quote a previous action block in your response.
+After <\\action_input|>, output nothing else and wait for an observation.
 Use this format:
-Thought: explain the next step briefly.
-Action: one available action name
-Action Input:
+<|thought|>explain the next step briefly.<\\thought|>
+<|action|>one available action name<\\action|>
+<|action_input|>
 ```text
 arguments for the action
 ```
+<\\action_input|>
 
-After the system returns an Observation, use it to decide the next step.
+After the system returns a paired observation, use it to decide the next step.
 When the task is complete, do not call another action. Return:
-Thought: brief summary of what you learned.
-Final Answer: the answer for the user.
+<|thought|>brief summary of what you learned.<\\thought|>
+<|final_answer|>the answer for the user.<\\final_answer|>
 
-If an Observation shows an action failed, reason about why it failed and try a corrected action.
+If an observation shows an action failed, reason about why it failed and try a corrected action.
 For requests about current or latest information, verify the date and facts with actions.
 Never present model memory, estimates, or unverified claims as current action results.
 """
 
-    def run(self, text: str, context: str = "") -> None:
+    def run(self, text: str) -> None:
         current_time = datetime.now().astimezone().isoformat(timespec="seconds")
         system_prompt = f"""You are an autonomous ReAct agent.
 
@@ -61,10 +56,7 @@ Available actions:
 
 {self.react_note}
 """
-        user_prompt = f"""Context:
-{context or "(none)"}
-
-User task:
+        user_prompt = f"""User task:
 {text}
 """
         self.memory = [
@@ -74,7 +66,6 @@ User task:
         state = "model"
         steps = 0
         response = ""
-        discarded_actions = 0
 
         while state != "done":
             if state == "model":
@@ -83,24 +74,41 @@ User task:
                     continue
 
                 steps += 1
-                resp_chunks = []
-                for chunk in self.backend.stream_response(self.memory, self.max_tokens):
-                    resp_chunks.append(chunk)
-                raw_response = "".join(resp_chunks)
-                action_count = len(
-                    list(self.actions.action_pattern.finditer(raw_response))
+                response = ""
+                printed_length = 0
+                response_stream = self.backend.stream_response(
+                    self.memory,
+                    self.max_tokens,
                 )
-                discarded_actions = max(0, action_count - 1)
-                response = (
-                    self.actions.trim_to_first_action(raw_response)
-                    if action_count > 0
-                    else raw_response
-                )
-                print(response, end="", flush=True)
+                try:
+                    for chunk in response_stream:
+                        response += chunk
+                        action_end = self.actions.first_complete_action_end(response)
+                        output_end = (
+                            action_end if action_end is not None else len(response)
+                        )
+                        if output_end > printed_length:
+                            print(
+                                response[printed_length:output_end],
+                                end="",
+                                flush=True,
+                            )
+                            printed_length = output_end
+                        if action_end is not None:
+                            response = response[:action_end]
+                            break
+                finally:
+                    close_stream = getattr(response_stream, "close", None)
+                    if close_stream:
+                        close_stream()
+
                 self.memory.append({"role": "assistant", "content": response})
 
                 action_call = self.actions.parse_action(response)
-                if "final answer:" in response.lower() and not action_call:
+                has_final_answer = bool(
+                    self.actions.final_answer_pattern.search(response)
+                )
+                if has_final_answer and not action_call:
                     state = "done"
                 else:
                     state = "action"
@@ -110,13 +118,7 @@ User task:
                 if result is None:
                     state = "repair"
                 else:
-                    if discarded_actions:
-                        result = (
-                            f"[warning: discarded {discarded_actions} trailing "
-                            f"Action block(s)]\n{result}"
-                        )
-                    discarded_actions = 0
-                    observation = f"Observation: {result}"
+                    observation = f"<|observation|>{result}<\\observation|>"
                     print(f"\n\n{observation}\n", flush=True)
                     self.memory.append({"role": "user", "content": observation})
                     state = "model"
@@ -124,12 +126,11 @@ User task:
             elif state == "repair":
                 observation = (
                     "No valid action was found. Continue with either a valid "
-                    "ReAct action or a Final Answer."
+                    "paired action or a paired final answer."
                 )
-                print(f"\n\nObservation: {observation}\n", flush=True)
-                self.memory.append(
-                    {"role": "user", "content": f"Observation: {observation}"}
-                )
+                observation = f"<|observation|>{observation}<\\observation|>"
+                print(f"\n\n{observation}\n", flush=True)
+                self.memory.append({"role": "user", "content": observation})
                 state = "model"
 
             elif state == "max_steps":
@@ -137,24 +138,14 @@ User task:
                     f"Reached max_steps={self.max_steps}. Stop and provide the best final "
                     "answer from the collected observations."
                 )
-                print(f"\n\nObservation: {observation}\n", flush=True)
-                self.memory.append(
-                    {"role": "user", "content": f"Observation: {observation}"}
-                )
+                observation = f"<|observation|>{observation}<\\observation|>"
+                print(f"\n\n{observation}\n", flush=True)
+                self.memory.append({"role": "user", "content": observation})
 
-                resp_chunks = []
+                response = ""
                 for chunk in self.backend.stream_response(self.memory, self.max_tokens):
-                    resp_chunks.append(chunk)
-                raw_response = "".join(resp_chunks)
-                action_count = len(
-                    list(self.actions.action_pattern.finditer(raw_response))
-                )
-                response = (
-                    self.actions.trim_to_first_action(raw_response)
-                    if action_count > 0
-                    else raw_response
-                )
-                print(response, end="", flush=True)
+                    response += chunk
+                    print(chunk, end="", flush=True)
                 self.memory.append({"role": "assistant", "content": response})
                 state = "done"
 

@@ -42,11 +42,16 @@ class OpenaiBackend(AgentBackend):
             messages=inputs,
             stream=True,
         )
-        for event in stream:
-            if len(event.choices) > 0:
-                delta = event.choices[0].delta
-                if delta and delta.content and len(delta.content) > 0:
-                    yield delta.content
+        try:
+            for event in stream:
+                if len(event.choices) > 0:
+                    delta = event.choices[0].delta
+                    if delta and delta.content and len(delta.content) > 0:
+                        yield delta.content
+        finally:
+            close_stream = getattr(stream, "close", None)
+            if close_stream:
+                close_stream()
 
 
 def get_backend():

@@ -117,8 +117,24 @@ class ActionCall:
 
 class ActionRunner:
     def __init__(self):
-        self.action_pattern = re.compile(r"(?im)^\s*Action\s*:\s*([A-Za-z_]\w*)\s*$")
-        self.action_input_pattern = re.compile(r"(?im)^\s*Action\s*Input\s*:\s*")
+        self.action_pattern = re.compile(
+            r"(?is:<\|action\|>\s*([A-Za-z_]\w*)\s*<\\action\|>)"
+            r"|(?im:^[ \t]*Action[ \t]*:[ \t]*"
+            r"([A-Za-z_]\w*)[ \t]*$)"
+        )
+        self.action_input_pattern = re.compile(
+            r"(?is:<\|action_input\|>(.*?)<\\action_input\|>)"
+            r"|(?im:^[ \t]*Action[ \t]*Input[ \t]*:[ \t]*$)"
+        )
+        self.final_answer_pattern = re.compile(
+            r"(?is:<\|final_answer\|>.*?<\\final_answer\|>)"
+            r"|(?im:^[ \t]*Final Answer[ \t]*:)"
+        )
+        self.block_start_pattern = re.compile(
+            r"(?i:<\|(?:thought|action|observation|final_answer)\|>)"
+            r"|(?im:^[ \t]*(?:Thought|Action|Observation|Final Answer)"
+            r"[ \t]*:)"
+        )
         global GLOBAL_ACTIONS
         self.actions = {}
         for function in GLOBAL_ACTIONS:
@@ -141,41 +157,21 @@ class ActionRunner:
                 return f"Invalid action name: {action_name}"
         return None
 
-    def trim_to_first_action(self, text: str) -> str:
-        text = self._strip_leading_observation(text)
+    def first_complete_action_end(self, text: str):
         action_match = self.action_pattern.search(text)
-        if not action_match:
-            return text
+        if not action_match or action_match.group(1) is None:
+            return None
 
         tail = text[action_match.end() :]
         action_input_match = self.action_input_pattern.search(tail)
-        if not action_input_match:
-            return text[: action_match.end()].rstrip()
+        if not action_input_match or action_input_match.group(1) is None:
+            return None
 
-        action_input_start = action_match.end() + action_input_match.end()
-        action_input = text[action_input_start:]
-        fenced_match = re.match(
-            r"(?ims)\s*```[^\n]*\n.*?^\s*```\s*",
-            action_input,
-        )
-        if fenced_match:
-            return text[: action_input_start + fenced_match.end()].rstrip()
+        next_action_match = self.action_pattern.search(tail)
+        if next_action_match and next_action_match.start() < action_input_match.start():
+            return None
 
-        next_block = re.search(
-            r"(?im)^\s*(?:Thought|Action|Observation|Final Answer)\s*:",
-            action_input,
-        )
-        if next_block:
-            return text[: action_input_start + next_block.start()].rstrip()
-        return text.rstrip()
-
-    def _strip_leading_observation(self, text: str) -> str:
-        return re.sub(
-            r"(?is)^\s*Observation\s*:\s*(?=(?:Thought|Action|Final Answer)\s*:)",
-            "",
-            text,
-            count=1,
-        )
+        return action_match.end() + action_input_match.end()
 
     def parse_action(self, text: str):
         action_matches = list(self.action_pattern.finditer(text))
@@ -185,25 +181,51 @@ class ActionRunner:
         action_match = action_matches[0]
         tail = text[action_match.end() :]
         action_input_match = self.action_input_pattern.search(tail)
-        if not action_input_match:
+        next_action_match = self.action_pattern.search(tail)
+        if action_match.group(1) is not None and (
+            not action_input_match
+            or action_input_match.group(1) is None
+            or (
+                next_action_match
+                and next_action_match.start() < action_input_match.start()
+            )
+        ):
+            return None
+
+        if not action_input_match or (
+            next_action_match and next_action_match.start() < action_input_match.start()
+        ):
             return ActionCall(
-                name=action_match.group(1).strip(),
+                name=self._action_name(action_match),
                 args="",
-                warning="[warning: Action Input was missing; executed with empty input]",
+                warning=(
+                    "[warning: paired <|action_input|> was missing; "
+                    "executed with empty input]"
+                ),
             )
 
-        action_input = tail[action_input_match.end() :]
+        action_input = (
+            action_input_match.group(1)
+            if action_input_match.group(1) is not None
+            else tail[action_input_match.end() :]
+        )
         warning = ""
         if len(action_matches) > 1:
             warning = (
-                f"[warning: response contained {len(action_matches)} Action blocks; "
-                "executed only the first one]"
+                f"[warning: response contained {len(action_matches)} "
+                "<|action|> blocks; executed only the first one]"
             )
 
         return ActionCall(
-            name=action_match.group(1).strip(),
+            name=self._action_name(action_match),
             args=self._extract_action_input(action_input),
             warning=warning,
+        )
+
+    @staticmethod
+    def _action_name(action_match: re.Match) -> str:
+        return next(
+            group.strip() for group in action_match.groups() if group is not None
         )
 
     def _extract_action_input(self, text: str) -> str:
@@ -214,11 +236,7 @@ class ActionRunner:
                 if line.strip() == "```":
                     return "\n".join(lines[1:idx]).rstrip()
 
-        action_input = re.split(
-            r"(?im)^\s*(?:Thought|Action|Observation|Final Answer)\s*:",
-            text,
-            maxsplit=1,
-        )[0]
+        action_input = self.block_start_pattern.split(text, maxsplit=1)[0]
         return action_input.strip()
 
     def desc(self) -> str:
@@ -229,21 +247,23 @@ class ActionRunner:
             if os.name == "nt"
             else "On POSIX systems, run_cmd uses bash when it is available."
         )
-        text_head = f"""Use the ReAct format when an action is required:
-Thought: explain what you need to do next.
-Action: $ACTION
-Action Input:
+        text_head = f"""Use the tagged ReAct format when an action is required:
+<|thought|>explain what you need to do next.<\\thought|>
+<|action|>$ACTION<\\action|>
+<|action_input|>
 ```text
 $ARGS
 ```
+<\\action_input|>
 
-Output exactly one Action block, then stop and wait for Observation.
+Every opening tag must have its matching closing tag.
+Output exactly one paired <|action|> block, then stop and wait for the paired <|observation|> block.
 {shell_note}
 
-Below are the available $ACTION options along with their descriptions and code:\n\n"""
+Below are the available action names and their descriptions and code:\n\n"""
         text_actions = []
         for key, value in self.actions.items():
-            text_actions.append(f"$ACTION={key}\n{value['desc']}")
+            text_actions.append(f"<|action|>{key}<\\action|>\n{value['desc']}")
         text_actions = "\n".join(text_actions)
         return text_head + text_actions
 
