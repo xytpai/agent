@@ -119,21 +119,19 @@ class ActionRunner:
     def __init__(self):
         self.action_pattern = re.compile(
             r"(?is:<\|action\|>\s*([A-Za-z_]\w*)\s*<\\action\|>)"
-            r"|(?im:^[ \t]*Action[ \t]*:[ \t]*"
-            r"([A-Za-z_]\w*)[ \t]*$)"
+            r"|(?i:Action[ \t]*:[ \t]*([A-Za-z_]\w*))"
         )
         self.action_input_pattern = re.compile(
             r"(?is:<\|action_input\|>(.*?)<\\action_input\|>)"
-            r"|(?im:^[ \t]*Action[ \t]*Input[ \t]*:[ \t]*$)"
+            r"|(?i:Action[ \t]*Input[ \t]*:[ \t]*)"
         )
         self.final_answer_pattern = re.compile(
             r"(?is:<\|final_answer\|>.*?<\\final_answer\|>)"
-            r"|(?im:^[ \t]*Final Answer[ \t]*:)"
+            r"|(?i:Final Answer[ \t]*:)"
         )
         self.block_start_pattern = re.compile(
             r"(?i:<\|(?:thought|action|observation|final_answer)\|>)"
-            r"|(?im:^[ \t]*(?:Thought|Action|Observation|Final Answer)"
-            r"[ \t]*:)"
+            r"|(?i:(?:Thought|Action|Observation|Final Answer)[ \t]*:)"
         )
         global GLOBAL_ACTIONS
         self.actions = {}
