@@ -19,7 +19,8 @@ class AgentBackend(ABC):
         pass
 
     @abstractmethod
-    def stream_response(self, content: str, max_tokens: int) -> Iterator[str]:
+    def stream_response(self, inputs: list, max_tokens: int) -> Iterator[str]:
+        # inputs = [{"role": "user", "content": content}, ...]
         pass
 
 
@@ -34,18 +35,23 @@ class OpenaiBackend(AgentBackend):
         )
         self.model = MODEL_NAME
 
-    def stream_response(self, content: str, max_tokens: int = 65536) -> Iterator[str]:
+    def stream_response(self, inputs: list, max_tokens: int = 65536) -> Iterator[str]:
         stream = self.client.chat.completions.create(
             model=self.model,
             max_completion_tokens=max_tokens,
-            messages=[{"role": "user", "content": content}],
+            messages=inputs,
             stream=True,
         )
-        for event in stream:
-            if len(event.choices) > 0:
-                delta = event.choices[0].delta
-                if delta and delta.content and len(delta.content) > 0:
-                    yield delta.content
+        try:
+            for event in stream:
+                if len(event.choices) > 0:
+                    delta = event.choices[0].delta
+                    if delta and delta.content and len(delta.content) > 0:
+                        yield delta.content
+        finally:
+            close_stream = getattr(stream, "close", None)
+            if close_stream:
+                close_stream()
 
 
 def get_backend():
@@ -60,6 +66,9 @@ def get_backend():
 if __name__ == "__main__":
     backend = get_backend()
     text = sys.argv[1]
-    for chunk in backend.stream_response(text, 65536):
+    inputs = [
+        {"role": "user", "content": text},
+    ]
+    for chunk in backend.stream_response(inputs, 65536):
         print(chunk, end="", flush=True)
     print("", flush=True)

@@ -1,4 +1,4 @@
-## AToy
+## Agent
 
 An agent create a lot shit
 
@@ -15,5 +15,5 @@ python3 core/backends.py "Introduce yourself"
 ### Run agent
 
 ```bash
-python3 core/agent.py --input=input.txt
+python3 core/agent.py --input=input.txt --history=new
 ```
