@@ -35,6 +35,20 @@ class Agent:
         self.run_id = ""
         self.memory = []
         self.react_note = """IMPORTANT:
+Before the ReAct loop, the system will ask you to plan the next moves.
+During that planning phase, return only:
+<|plan|>
+{
+  "goal": "the result to achieve",
+  "data_needed": ["required inputs, evidence, or sources"],
+  "steps": ["a concise execution step", "the next execution step"],
+  "output": "the intended deliverable and format",
+  "success_criteria": ["a short, verifiable completion condition"]
+}
+<\\plan|>
+Do not use thought, action, action_input, observation, or final_answer tags in a plan.
+The plan is an execution checklist, not detailed private reasoning.
+
 You are running in a ReAct loop:
 <|thought|>...<\\thought|> -> <|action|>...<\\action|> ->
 <|observation|>...<\\observation|> -> <|thought|>...<\\thought|>.
@@ -87,6 +101,7 @@ Never present model memory, estimates, or unverified claims as current action re
                         isinstance(item, dict)
                         and item.get("role") in {"user", "assistant"}
                         and isinstance(item.get("content"), str)
+                        and item.get("state") != "plan"
                     ):
                         history.append(
                             {
@@ -128,19 +143,96 @@ Available actions:
 {self.react_note}
 """
         user_prompt = f"{text}"
+        planning_request = """Plan the next moves for the current user task.
+Keep the plan concise and executable. Include data or evidence requirements,
+the intended output, and objective success criteria when relevant.
+Return exactly one paired <|plan|>...<\\plan|> block containing valid JSON
+with goal, data_needed, steps, output, and success_criteria fields.
+Do not call an action or provide the final answer during this phase."""
         history = self.load_history()
         self.memory = [
             {"role": "system", "content": system_prompt},
             *history,
             {"role": "user", "content": user_prompt},
+            {"role": "user", "content": planning_request},
         ]
         self.save_history("user", user_prompt, "user")
-        state = "model"
+        state = "plan"
+        plan_attempts = 0
         steps = 0
         response = ""
 
         while state != "done":
-            if state == "model":
+            if state == "plan":
+                plan_attempts += 1
+                response = ""
+                printed_length = 0
+                response_stream = self.backend.stream_response(
+                    self.memory,
+                    self.max_tokens,
+                )
+                try:
+                    for chunk in response_stream:
+                        response += chunk
+                        plan_end = self.actions.first_complete_plan_end(response)
+                        output_end = plan_end if plan_end is not None else len(response)
+                        if output_end > printed_length:
+                            print(
+                                response[printed_length:output_end],
+                                end="",
+                                flush=True,
+                            )
+                            printed_length = output_end
+                        if plan_end is not None:
+                            response = response[:plan_end]
+                            break
+                finally:
+                    close_stream = getattr(response_stream, "close", None)
+                    if close_stream:
+                        close_stream()
+
+                print("", flush=True)
+                self.memory.append({"role": "assistant", "content": response})
+                self.save_history("assistant", response, "plan")
+
+                valid_plan = self.actions.parse_plan(response) is not None
+                if valid_plan:
+                    self.memory.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Execute the accepted plan now. Follow the ReAct "
+                                "protocol and emit exactly one action or one final "
+                                "answer per response."
+                            ),
+                        }
+                    )
+                    state = "model"
+                elif plan_attempts < 2:
+                    self.memory.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "The plan format was invalid. Return one paired "
+                                "<|plan|>...<\\plan|> block containing valid JSON "
+                                "with goal, data_needed, steps, output, and "
+                                "success_criteria fields, and no other text."
+                            ),
+                        }
+                    )
+                else:
+                    self.memory.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Planning format failed twice. Proceed with the task "
+                                "using the ReAct protocol."
+                            ),
+                        }
+                    )
+                    state = "model"
+
+            elif state == "model":
                 if steps >= self.max_steps:
                     state = "max_steps"
                     continue

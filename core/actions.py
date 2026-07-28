@@ -521,9 +521,14 @@ class ActionRunner:
             r"(?is:<\|final_answer\|>.*?<\\final_answer\|>)"
             r"|(?i:Final Answer[ \t]*:)"
         )
+        self.plan_pattern = re.compile(r"(?is:<\|plan\|>.*?<\\plan\|>)")
+        self.protocol_tag_pattern = re.compile(
+            r"(?i:<(?:\||\\)(?:plan|thought|action|action_input|"
+            r"observation|final_answer)\|>)"
+        )
         self.block_start_pattern = re.compile(
-            r"(?i:<\|(?:thought|action|observation|final_answer)\|>)"
-            r"|(?i:(?:Thought|Action|Observation|Final Answer)[ \t]*:)"
+            r"(?i:<\|(?:plan|thought|action|observation|final_answer)\|>)"
+            r"|(?i:(?:Plan|Thought|Action|Observation|Final Answer)[ \t]*:)"
         )
         global GLOBAL_ACTIONS
         self.actions = {}
@@ -565,6 +570,43 @@ class ActionRunner:
             return None
 
         return action_match.end() + action_input_match.end()
+
+    def first_complete_plan_end(self, text: str):
+        plan_match = self.plan_pattern.search(text)
+        return plan_match.end() if plan_match else None
+
+    def parse_plan(self, text: str):
+        plan_match = self.plan_pattern.fullmatch(text.strip())
+        if not plan_match:
+            return None
+
+        plan_text = plan_match.group(0)
+        payload = plan_text[len("<|plan|>") : -len("<\\plan|>")].strip()
+        if self.protocol_tag_pattern.search(payload):
+            return None
+        try:
+            plan = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
+
+        if not isinstance(plan, dict):
+            return None
+        if not isinstance(plan.get("goal"), str) or not plan["goal"].strip():
+            return None
+        if not isinstance(plan.get("output"), str) or not plan["output"].strip():
+            return None
+
+        for key in ("steps", "data_needed", "success_criteria"):
+            values = plan.get(key)
+            if not isinstance(values, list):
+                return None
+            if any(not isinstance(value, str) or not value.strip() for value in values):
+                return None
+
+        if not plan["steps"] or not plan["success_criteria"]:
+            return None
+
+        return plan
 
     def parse_action(self, text: str):
         action_matches = list(self.action_pattern.finditer(text))
