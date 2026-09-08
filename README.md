@@ -1,6 +1,6 @@
 ## Agent
 
-An agent create a lot shit
+A lightweight ReAct agent that combines language models with tool execution to tackle tasks through iterative reasoning and action, with persistent conversation history.
 
 ### Backend Test
 
