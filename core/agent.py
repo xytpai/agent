@@ -134,6 +134,10 @@ Available actions:
             *history,
             {"role": "user", "content": user_prompt},
         ]
+        context_usage = 0
+        for item in self.memory:
+            context_usage += len(item['content'])
+        print(f"context_usage: {context_usage/1000} K", flush=True)
         self.save_history("user", user_prompt, "user")
         state = "model"
         steps = 0
