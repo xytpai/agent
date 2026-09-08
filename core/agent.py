@@ -24,8 +24,9 @@ class Agent:
         max_tokens: int,
         max_steps: int,
         history: str,
+        effort: str | None = None,
     ):
-        self.backend = get_backend()
+        self.backend = get_backend(effort=effort)
         self.actions = ActionRunner()
         self.max_tokens = max_tokens
         self.max_steps = max_steps
@@ -239,11 +240,13 @@ if __name__ == "__main__":
     parser.add_argument("--max_steps", type=int, default=20)
     parser.add_argument("--input", type=str, default="None")
     parser.add_argument("--history", type=str, default="history")
+    parser.add_argument("--effort", help="Reasoning level; defaults to REASONING_EFFORT or auto")
     args = parser.parse_args()
     agent = Agent(
         max_tokens=args.max_tokens,
         max_steps=args.max_steps,
         history=args.history,
+        effort=args.effort,
     )
     with open(args.input.strip(), "r") as f:
         text = f.read()
