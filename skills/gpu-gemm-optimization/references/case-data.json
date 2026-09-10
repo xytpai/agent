@@ -1,0 +1,1144 @@
+{
+  "description": "Historical observations, not a claim about the current checkout. Original file paths are provenance, not required inputs.",
+  "timings": {
+    "ablation": {
+      "source": "/tmp/scaled_gemm_rootcause/ablation.json",
+      "sha256": "411f6f6f76de2ee873128df1d07cfe559971a7d4590e601419fbcd45adee1959",
+      "data": {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "slots": 15,
+        "launches": 128,
+        "us": {
+          "baseline": [
+            380.0877630710602,
+            380.61028718948364,
+            380.5680572986603,
+            379.95338439941406,
+            380.5999457836151,
+            381.00558519363403,
+            380.2855610847473,
+            379.7836899757385,
+            379.9518048763275,
+            380.25274872779846,
+            379.64776158332825,
+            379.72867488861084,
+            380.6571364402771,
+            379.0765106678009,
+            379.50024008750916
+          ],
+          "traversal": [
+            378.378689289093,
+            377.15303897857666,
+            376.92397832870483,
+            377.6264786720276,
+            378.522127866745,
+            376.36521458625793,
+            376.96772813796997,
+            377.2180378437042,
+            376.62866711616516,
+            377.045214176178,
+            377.4414658546448,
+            376.54367089271545,
+            379.1314959526062,
+            377.0630359649658,
+            378.4183859825134
+          ],
+          "batch": [
+            380.3286850452423,
+            382.4215233325958,
+            379.90182638168335,
+            380.86745142936707,
+            380.4593086242676,
+            380.5040121078491,
+            379.53275442123413,
+            381.7199766635895,
+            379.94086742401123,
+            379.3486952781677,
+            380.65242767333984,
+            380.93245029449463,
+            381.2536895275116,
+            381.06462359428406,
+            381.06995820999146
+          ],
+          "soffset": [
+            376.82709097862244,
+            377.73585319519043,
+            376.6155242919922,
+            376.6011595726013,
+            377.5530457496643,
+            377.23833322525024,
+            377.8436481952667,
+            377.2073984146118,
+            376.69646739959717,
+            377.3074150085449,
+            377.31271982192993,
+            377.32771039009094,
+            379.9952566623688,
+            377.42334604263306,
+            378.84432077407837
+          ],
+          "dma": [
+            378.1690001487732,
+            377.5249123573303,
+            376.3020634651184,
+            376.1083483695984,
+            376.73428654670715,
+            377.76708602905273,
+            377.65803933143616,
+            377.5045871734619,
+            377.1911561489105,
+            376.4099180698395,
+            377.9899477958679,
+            379.15024161338806,
+            377.0836591720581,
+            376.914918422699,
+            376.5636682510376
+          ],
+          "unroll": [
+            380.8121383190155,
+            380.93963265419006,
+            379.08148765563965,
+            380.8727562427521,
+            380.341500043869,
+            379.7033727169037,
+            380.2643120288849,
+            380.2586793899536,
+            379.92680072784424,
+            380.341500043869,
+            380.0205588340759,
+            378.86399030685425,
+            379.61775064468384,
+            380.1630735397339,
+            381.3837170600891
+          ],
+          "fp8_ptpc": [
+            363.7697398662567,
+            363.65944147109985,
+            362.5281751155853,
+            363.78130316734314,
+            362.5500500202179,
+            363.0753755569458,
+            362.74537444114685,
+            364.90166187286377,
+            363.2863163948059,
+            364.1434907913208,
+            363.564133644104,
+            365.67914485931396,
+            363.35256695747375,
+            364.3553853034973,
+            362.4972403049469
+          ]
+        },
+        "median_us": {
+          "baseline": 380.0877630710602,
+          "traversal": 377.15303897857666,
+          "batch": 380.65242767333984,
+          "soffset": 377.31271982192993,
+          "dma": 377.1911561489105,
+          "unroll": 380.2586793899536,
+          "fp8_ptpc": 363.564133644104
+        }
+      }
+    },
+    "kcombo": {
+      "source": "/tmp/scaled_gemm_rootcause/kcombo.json",
+      "sha256": "36fba2f8f9e312a6b580e27aa48b5163988f22ca788e15b0d2382eef3d750029",
+      "data": {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "slots": 15,
+        "launches": 128,
+        "us": {
+          "baseline": [
+            379.6846866607666,
+            379.04876470565796,
+            379.4715702533722,
+            380.3468644618988,
+            380.17594814300537,
+            379.94468212127686,
+            380.5621862411499,
+            379.0546953678131,
+            378.0771791934967,
+            379.4650137424469,
+            379.57313656806946,
+            377.86030769348145,
+            379.3390691280365,
+            381.45938515663147,
+            378.35216522216797
+          ],
+          "kperm": [
+            371.5967833995819,
+            371.3555335998535,
+            372.20364809036255,
+            371.73178791999817,
+            371.7423975467682,
+            371.38986587524414,
+            370.90644240379333,
+            370.64018845558167,
+            372.0089793205261,
+            370.85020542144775,
+            370.27645111083984,
+            371.2189793586731,
+            370.7023859024048,
+            370.47895789146423,
+            372.0230460166931
+          ],
+          "kp_identity": [
+            367.64514446258545,
+            368.47829818725586,
+            368.3314323425293,
+            369.09082531929016,
+            368.17705631256104,
+            368.2042360305786,
+            367.99392104148865,
+            368.8317537307739,
+            368.68831515312195,
+            368.86268854141235,
+            368.448942899704,
+            367.05610156059265,
+            367.9436147212982,
+            368.5420751571655,
+            369.1433072090149
+          ],
+          "kp_dma": [
+            370.32705545425415,
+            369.7470724582672,
+            371.20115756988525,
+            371.2786138057709,
+            370.1379895210266,
+            371.1652159690857,
+            370.93207240104675,
+            370.3789710998535,
+            370.67437171936035,
+            370.4136312007904,
+            370.8745539188385,
+            370.3767955303192,
+            371.61552906036377,
+            369.6286380290985,
+            371.2655305862427
+          ],
+          "kp_id_dma": [
+            366.82265996932983,
+            366.9964075088501,
+            366.38107895851135,
+            366.1826252937317,
+            367.0876622200012,
+            366.9229745864868,
+            367.9070770740509,
+            366.722971200943,
+            366.5049374103546,
+            366.7720556259155,
+            366.29047989845276,
+            367.23485589027405,
+            367.09079146385193,
+            365.0969862937927,
+            366.9114112854004
+          ],
+          "kp_id_traversal": [
+            366.9804632663727,
+            366.77953600883484,
+            365.66421389579773,
+            365.5169904232025,
+            365.15671014785767,
+            366.7964041233063,
+            366.49107933044434,
+            365.6451106071472,
+            366.05578660964966,
+            366.0476505756378,
+            365.4332458972931,
+            365.56917428970337,
+            366.68890714645386,
+            365.6351566314697,
+            364.19013142585754
+          ],
+          "fp8_ptpc": [
+            363.162636756897,
+            360.8812987804413,
+            363.03606629371643,
+            364.7073209285736,
+            362.46949434280396,
+            361.8447780609131,
+            363.014817237854,
+            362.16700077056885,
+            362.8654479980469,
+            361.0682189464569,
+            362.9985749721527,
+            362.2322976589203,
+            364.7669851779938,
+            362.14232444763184,
+            363.53325843811035
+          ]
+        },
+        "median_us": {
+          "baseline": 379.4715702533722,
+          "kperm": 371.3555335998535,
+          "kp_identity": 368.448942899704,
+          "kp_dma": 370.67437171936035,
+          "kp_id_dma": 366.82265996932983,
+          "kp_id_traversal": 365.66421389579773,
+          "fp8_ptpc": 362.8654479980469
+        }
+      }
+    },
+    "final": {
+      "source": "/tmp/scaled_gemm_rootcause/final.json",
+      "sha256": "619a97fa89825062c0406ac46c177c5c7bbe7c05fb88ff1500e6d9be101eba9d",
+      "data": {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "slots": 15,
+        "launches": 128,
+        "us": {
+          "baseline": [
+            380.33807277679443,
+            379.0164887905121,
+            378.50838899612427,
+            378.51712107658386,
+            378.5961866378784,
+            379.10932302474976,
+            378.98901104927063,
+            379.0871202945709,
+            379.1174292564392,
+            380.1821172237396,
+            379.42931056022644,
+            380.1586925983429,
+            378.12086939811707,
+            379.1314959526062,
+            378.25462222099304,
+            379.4708847999573,
+            380.81714510917664,
+            381.00466132164,
+            377.65398621559143,
+            380.49402832984924,
+            381.2921643257141,
+            379.0655732154846,
+            381.085604429245,
+            378.6536753177643,
+            379.8724412918091
+          ],
+          "current": [
+            366.5969669818878,
+            364.1272783279419,
+            366.203248500824,
+            365.8669888973236,
+            364.9757206439972,
+            363.79942297935486,
+            364.9769723415375,
+            364.6222949028015,
+            366.3410544395447,
+            364.9263381958008,
+            363.67666721343994,
+            364.53884840011597,
+            363.7750744819641,
+            365.4266893863678,
+            365.7929301261902,
+            366.0944998264313,
+            364.82885479927063,
+            365.01508951187134,
+            366.080105304718,
+            367.53448843955994,
+            364.62634801864624,
+            366.00446701049805,
+            364.76945877075195,
+            364.62727189064026,
+            365.0491535663605
+          ],
+          "fp8_ptpc": [
+            363.59038949012756,
+            362.58381605148315,
+            362.92287707328796,
+            363.38290572166443,
+            361.63443326950073,
+            363.95755410194397,
+            362.713485956192,
+            361.62474751472473,
+            363.86629939079285,
+            361.9003891944885,
+            363.37852478027344,
+            362.5416159629822,
+            363.32693696022034,
+            362.5597357749939,
+            363.8744652271271,
+            361.86695098876953,
+            363.736629486084,
+            363.1282150745392,
+            362.9947602748871,
+            363.5728657245636,
+            363.30944299697876,
+            364.2404079437256,
+            366.07107520103455,
+            362.25757002830505,
+            363.37071657180786
+          ]
+        },
+        "median_us": {
+          "baseline": 379.1174292564392,
+          "current": 364.9769723415375,
+          "fp8_ptpc": 363.30944299697876
+        }
+      }
+    }
+  },
+  "pmc": {
+    "baseline": {
+      "source": "/tmp/scaled_gemm_rootcause/pmc_baseline/mi355-gpu-45/432144_counter_collection.csv",
+      "sha256": "19967515bda670f62967fe6c64cd05dea1b28589bbe1de812be759ccb5fa4f1d",
+      "rows": [
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6332416.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "29573120.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "52428800.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "92678512.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "45063252.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6332416.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "29573120.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "52428800.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "93663797.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "45092581.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6332416.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "29573120.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "52428800.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "93849823.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "45066604.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6332416.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "29573120.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "52428800.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "93638080.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "45066452.000000"
+        }
+      ],
+      "mean_per_dispatch": {
+        "SQ_INSTS_MFMA": 16777216.0,
+        "SQ_INSTS_SALU": 6332416.0,
+        "SQ_INSTS_VALU": 29573120.0,
+        "SQ_LDS_BANK_CONFLICT": 52428800.0,
+        "SQ_WAIT_ANY": 93457553.0,
+        "SQ_WAIT_INST_LDS": 45072222.25
+      }
+    },
+    "kperm": {
+      "source": "/tmp/scaled_gemm_rootcause/pmc_kperm/mi355-gpu-45/432949_counter_collection.csv",
+      "sha256": "f9ffc8f13661b98c602c2e908600a9c35ffb90ffb8365fd08b91ff93c42ba951",
+      "rows": [
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6324224.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "29556736.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "2097152.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "92581988.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "25719931.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6324224.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "29556736.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "2097152.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "93678664.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "25787112.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6324224.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "29556736.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "2097152.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "93484948.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "25850673.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6324224.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "29556736.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "2097152.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "93406511.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "25801806.000000"
+        }
+      ],
+      "mean_per_dispatch": {
+        "SQ_INSTS_MFMA": 16777216.0,
+        "SQ_INSTS_SALU": 6324224.0,
+        "SQ_INSTS_VALU": 29556736.0,
+        "SQ_LDS_BANK_CONFLICT": 2097152.0,
+        "SQ_WAIT_ANY": 93288027.75,
+        "SQ_WAIT_INST_LDS": 25789880.5
+      }
+    },
+    "fp8_ptpc": {
+      "source": "/tmp/scaled_gemm_rootcause/pmc_fp8_ptpc/mi355-gpu-45/432326_counter_collection.csv",
+      "sha256": "6990a3aa77ffb9d70d07c9930d63faf9e64248c7beec31de162895d878358a23",
+      "rows": [
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6471680.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "23715840.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "2097152.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "90556498.000000"
+        },
+        {
+          "Dispatch_Id": "15",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "23478077.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6471680.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "23715840.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "2097152.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "91512247.000000"
+        },
+        {
+          "Dispatch_Id": "16",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "23518818.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6471680.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "23715840.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "2097152.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "91143990.000000"
+        },
+        {
+          "Dispatch_Id": "17",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "23512154.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_MFMA",
+          "Counter_Value": "16777216.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_SALU",
+          "Counter_Value": "6471680.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_INSTS_VALU",
+          "Counter_Value": "23715840.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_LDS_BANK_CONFLICT",
+          "Counter_Value": "2097152.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_WAIT_ANY",
+          "Counter_Value": "91614401.000000"
+        },
+        {
+          "Dispatch_Id": "18",
+          "Agent_Id": "Agent 2",
+          "Kernel_Name": "hgemm_fp8_ptpc_t256x256x128x2_ks1_w2x4x1_gm0_bias0_lnt_phti_ssa_0",
+          "Counter_Name": "SQ_WAIT_INST_LDS",
+          "Counter_Value": "23496801.000000"
+        }
+      ],
+      "mean_per_dispatch": {
+        "SQ_INSTS_MFMA": 16777216.0,
+        "SQ_INSTS_SALU": 6471680.0,
+        "SQ_INSTS_VALU": 23715840.0,
+        "SQ_LDS_BANK_CONFLICT": 2097152.0,
+        "SQ_WAIT_ANY": 91206784.0,
+        "SQ_WAIT_INST_LDS": 23501462.5
+      }
+    }
+  },
+  "epilogue": {
+    "final_8192": {
+      "source": "/tmp/scaled_hti_epilogue_trial/final_8192.json",
+      "sha256": "3db3b84835b4d64ceb57a8ab347d6fda5822eb8867d624adbeeef22a65c63065",
+      "data": {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "slots": 15,
+        "launches": 128,
+        "us": {
+          "baseline": [
+            369.74167823791504,
+            370.0369894504547,
+            370.74610590934753,
+            368.97730827331543,
+            370.16355991363525,
+            370.5676198005676,
+            369.74355578422546,
+            370.50703167915344,
+            368.9548075199127,
+            369.88919973373413,
+            368.6123192310333,
+            369.31511759757996,
+            369.39480900764465,
+            369.49607729911804,
+            369.1101372241974,
+            369.6497976779938,
+            369.5223033428192,
+            368.7076270580292,
+            369.57982182502747,
+            370.21324038505554,
+            369.17948722839355,
+            369.07511949539185,
+            370.0866997241974,
+            369.3660497665405,
+            368.72637271881104
+          ],
+          "current": [
+            367.7891492843628,
+            366.25638604164124,
+            366.70634150505066,
+            367.2378957271576,
+            367.10324883461,
+            366.8866753578186,
+            367.55481362342834,
+            366.99041724205017,
+            366.7060434818268,
+            369.3848252296448,
+            365.84508419036865,
+            366.7966425418854,
+            367.055743932724,
+            366.2107288837433,
+            365.93133211135864,
+            366.5066659450531,
+            365.6107187271118,
+            365.38320779800415,
+            366.34790897369385,
+            366.06132984161377,
+            366.316020488739,
+            368.16325783729553,
+            365.40883779525757,
+            365.4235005378723,
+            367.33511090278625
+          ],
+          "fp8_ptpc": [
+            363.9375567436218,
+            364.7732138633728,
+            363.7750744819641,
+            363.4028732776642,
+            365.2554154396057,
+            362.6762926578522,
+            363.5547459125519,
+            363.8303875923157,
+            363.1519377231598,
+            364.6797835826874,
+            364.06975984573364,
+            364.444762468338,
+            362.76349425315857,
+            362.9600703716278,
+            363.01350593566895,
+            363.1691336631775,
+            362.7288043498993,
+            362.2088134288788,
+            363.3766174316406,
+            362.2494339942932,
+            363.64224553108215,
+            362.491637468338,
+            364.25256729125977,
+            363.3841276168823,
+            363.4487986564636
+          ]
+        },
+        "median_us": {
+          "baseline": 369.5223033428192,
+          "current": 366.7060434818268,
+          "fp8_ptpc": 363.4028732776642
+        }
+      }
+    },
+    "compare_rawbar_small": {
+      "source": "/tmp/scaled_hti_epilogue_trial/compare_rawbar_small.json",
+      "sha256": "7f5d98fe81a775c3d2701a45b4a546e5d92b2c91135000aaa8caada786c062e1",
+      "data": {
+        "shape": [
+          256,
+          256,
+          256
+        ],
+        "slots": 32,
+        "launches": 128,
+        "us": {
+          "baseline": [
+            8.897913619875908,
+            8.899789303541183,
+            8.902601897716522,
+            8.908852003514767,
+            8.904163725674152,
+            8.904781192541122,
+            8.90322681516409,
+            8.904163725674152,
+            8.90478864312172,
+            8.903538808226585,
+            8.911038748919964,
+            8.911343291401863,
+            8.902913890779018,
+            8.90978891402483,
+            8.906976319849491,
+            8.920101448893547,
+            8.90010129660368,
+            8.901976980268955,
+            8.899164386093616,
+            8.906039409339428,
+            8.90510156750679,
+            8.904476650059223,
+            8.911038748919964,
+            8.904476650059223,
+            8.90322681516409
+          ],
+          "interleaved": [
+            9.14010126143694,
+            9.13572683930397,
+            9.14041418582201,
+            9.142288938164711,
+            9.14292223751545,
+            9.141352027654648,
+            9.141352027654648,
+            9.144163690507412,
+            9.141352027654648,
+            9.142913855612278,
+            9.143234230577946,
+            9.139476343989372,
+            9.144788607954979,
+            9.142288938164711,
+            9.138859808444977,
+            9.136359207332134,
+            9.139476343989372,
+            9.141046553850174,
+            9.136663749814034,
+            9.144172072410583,
+            9.139164350926876,
+            9.141359478235245,
+            9.148226119577885,
+            9.145108982920647,
+            9.142913855612278
+          ],
+          "current": [
+            9.103851392865181,
+            9.100413881242275,
+            9.102914482355118,
+            9.106671437621117,
+            9.100101888179779,
+            9.101038798689842,
+            9.105734527111053,
+            9.09885112196207,
+            9.101351723074913,
+            9.104164317250252,
+            9.10197664052248,
+            9.107913821935654,
+            9.100109338760376,
+            9.101038798689842,
+            9.107601828873158,
+            9.097601287066936,
+            9.10135917365551,
+            9.115726687014103,
+            9.105414152145386,
+            9.101351723074913,
+            9.105726145207882,
+            9.102288633584976,
+            9.111976251006126,
+            9.108851663768291,
+            9.107913821935654
+          ]
+        },
+        "median_us": {
+          "baseline": 8.904476650059223,
+          "interleaved": 9.141352027654648,
+          "current": 9.102914482355118
+        }
+      }
+    }
+  }
+}
