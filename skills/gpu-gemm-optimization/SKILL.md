@@ -1,6 +1,6 @@
 ---
 name: gpu-gemm-optimization
-description: Optimize and root-cause GPU GEMM kernels with a reproducible baseline, IR/ASM inspection, ROCm trace and hardware counters, controlled ablations, and correctness/performance gates. Use for FlyDSL, gfx950 FP8/BF16/FP16 GEMM, HTI, full-tile, split-K, slice-K, layout/swizzle, pipelining, or regression-free refactors.
+description: Optimize and root-cause GPU GEMM kernels with a reproducible baseline, IR/ASM inspection, ROCm trace and hardware counters, controlled ablations, and correctness/performance gates. Use for FlyDSL, gfx950 MXFP4/MXFP8/E8M0 or FP8/BF16/FP16 GEMM, preshuffle, scale chunk/DMA, tuning/AOT, HTI, full-tile, split-K, slice-K, layout/swizzle, pipelining, or regression-free refactors.
 ---
 
 # GPU/GEMM 优化 Skill
@@ -8,10 +8,43 @@ description: Optimize and root-cause GPU GEMM kernels with a reproducible baseli
 ## 触发条件
 
 用户要求：优化 kernel、解释性能差距、分析 ASM/trace、调整 GEMM pipeline /
-swizzle / MMA / epilogue、简化代码但不得退化，或补全相关回归测试。
+swizzle / MMA / epilogue、简化代码但不得退化，或补全相关回归测试；包括 MXFP4/MXFP8、E8M0 scale、preshuffle、
+PyTorch/aiter tuner、AOT 与动态缓存接入。
 
-以本仓库 FlyDSL + ROCm/gfx950 为主要实例。方法适用于其他 GPU；
+以已内嵌的 FlyDSL + ROCm/gfx950 历史案例为主要实例。方法适用于其他 GPU；
 **指令语义、bank 分组、计数器单位与同步规则必须按目标架构重新确认**。
+
+## 自包含与持久化规则
+
+- 知识、关键算法/伪代码、案例数据和工具必须保存在 **agent 库内**；
+  不引用其他工作区的源码、私有 helper、历史实验路径或外部复现脚本。
+- 原日志仅是 agent 内可选溯源；必要证据内嵌在 references，日志删除后仍可使用。
+  历史标识符是语义说明，不要求存在同名外部实现。
+- 第三方已安装依赖（如 PyTorch、FlyDSL、ROCm 工具）与外部源码仓库分开说明；
+  不能把库内诊断示例说成原 MXFP kernel 或历史性能复现。
+- 实验新增代码、baseline、adapter 和需要留存的产物放在 agent 库内；
+  不能以“另一个仓库还在”作为技能可用的前提。
+
+## MXFP4 / MXFP8 专项（遇到 MX 问题先读）
+
+先读 [MXFP 优化手册](references/mxfp-optimization.md)，涉及调参/接入时再读
+[MXFP 集成门禁](references/mxfp-integration.md)；历史效果及被推翻的归因见
+[MXFP 案例与纠错](references/mxfp-case-studies.md)。
+
+必须记住：
+- 标准连续 K32 E8M0 不等于 block128/PTPC；区分逻辑 K、packed bytes、
+  MMA K、AB stages、scale chunk 和 slot 数。
+- scale 随 operand fragment 保存/复用，不能让下一轮 LDS 预取覆盖仍需消费的 scale。
+- 先做 dword scale DMA、chunk 双缓冲、uniform soffset、live-range/schedule 消融；
+  常用 FP8 BK128 为 4 tile chunk，FP4 BK256 为 2 tile，不能硬套所有几何。
+- **copy atom 必然更快的旧解释已推翻**：关键案例是遗漏 load 前后 sched fence。
+  fence 不是运行时 barrier；不能对所有 dtype/full-tile 无条件全开。
+- reader barrier、HTI phase、scale slot 回收是正确性边界；减少 spill、bank conflict、
+  指令数或增 AGPR 都不自动意味着更快。共享 helper 不强制共享 FP4/8 调度。
+- 分开 preshuffle/标准输入、静态实验/动态接口、峰值实验/正式简洁版本；
+  动态接口、精度、完整 reduce 时间不能为冲“5P”悄悄改变。
+- 新 general chunk 公式的历史验证仅到 host 参数层；别当 GPU 最优方案。
+  历史 non-shuffle 约4.81P、全preshuffle约5P也不是当前性能承诺。
 
 ## 必须遵守的工作规则
 
@@ -141,8 +174,10 @@ GEMM 优先级建议：
 - 保留 baseline + candidate + 原 reference 三者，避免只和不稳定参考比。
 - 回退要么修复/回滚，要么经用户接受后明确列为 tradeoff。
 
-可用 `scripts/benchmark_ab.py`，配合 `examples/scaled_gemm_adapter.py`。
-默认测 Graph；不能替代用户应用的端到端 benchmark。
+可用 `scripts/benchmark_ab.py`，配合库内 `examples/scaled_gemm_adapter.py`
+和 `examples/torch_scaled_demo.py` 做工具 A/A 诊断。该示例只用 PyTorch BF16，
+**不是 MXFP/HTI 实现，也不能复现历史吞吐**。实际 kernel 的 adapter 与实现
+须在 agent 库内准备；默认测 Graph，不能替代应用端到端 benchmark。
 
 ### 9. 交付与停止条件
 
@@ -167,6 +202,10 @@ GEMM 优先级建议：
 
 | 文件 | 用途 |
 |---|---|
+| `references/mxfp-optimization.md` | MXFP4/8 packing、scale chunk、soffset、HTI 调度与失败方向 |
+| `references/mxfp-integration.md` | MXFP 参数/LDS、split-K、tuner、动态接口、AOT、测试与 ATT |
+| `references/mxfp-case-studies.md` | MXFP 历史效果、纠错、最终取舍与未验证项 |
+| `references/mxfp-source-index.json` | 12 份 agent 内日志的可选溯源与内嵌精选证据 |
 | `references/measurement.md` | 环境、baseline、Graph/rotary/端到端测量 |
 | `references/asm-ir.md` | IR pass、ISA、循环、bank 地址和 barrier ledger |
 | `references/trace-counters.md` | rocprofv3 trace/PMC 与解释边界 |

@@ -140,12 +140,24 @@ FlyDSL leading dimension 仍要求实际 stride1。测试这个边界，而不�
 
 ## 8. 最终命令与结论边界
 
-~~~bash
-HIP_VISIBLE_DEVICES=0 FLYDSL_RUNTIME_CACHE_DIR="$RUN/cache-final-fresh" \
-pytest -q -rx test_scaled_gemm_gfx950.py -k 'not benchmark'
-~~~
+本 skill 不引用任何旧项目测试文件。当前任务的GPU测试必须在agent库内
+准备，并记录实际命令、选中/排除的用例和失败；不能用不存在的历史测试入口
+作为验收命令。
 
-此命令排除了原 benchmark，必须在报告写明。
+库内工具/文档 CPU 自检（从 skill 目录执行）：
+~~~bash
+python -m unittest discover -s tests -v
+~~~
+**这不是GPU正确性或性能验收**；若未运行本轮kernel测试，必须明确标注。
+
 Python branch coverage 对 tracing DSL 不等价于 GPU runtime 分支覆盖；
 只有执行了对应 policy/input 的 kernel 才能声称该路径已测。
 共享 utils 变动要复测 A16W16 等所有消费者。纯测试请求不默认改 kernel。
+
+## 9. MXFP 专项补充
+
+上面的 PTPC 精确 scale 探针不直接适用于 E8M0：E8M0 不表示负 scale 或数值零，
+byte0不是0，byte127为1，byte255按特殊值契约处理。
+FP4必须独立拆nibble；MX按连续K32展开，使用group0/group2分离的K16 strip探针。
+scale与AB fragment同步保存，覆盖chunk回绕、Graph更新scale、packed byte stride、
+实际C-shuffle dtype及split partial精度。详见 [MXFP 集成门禁](mxfp-integration.md)。

@@ -33,14 +33,30 @@ rocprofv3-avail pmc-check --help
 
 ## 3. Timeline trace
 
+下列 `TARGET_PROBE` 是本轮命令数组，不是已有历史脚本的路径。
+从 skill 目录设置它；代码和adapter必须先保存在agent内，例如复用库内
+benchmark工具（真实目标需替换为本轮agent内实现）：
+~~~bash
+: "${ADAPTER:?设置本轮 agent 内 adapter}"
+: "${BASELINE:?设置本轮 agent 内 baseline}"
+: "${CANDIDATE:?设置本轮 agent 内 candidate}"
+TARGET_PROBE=(python scripts/benchmark_ab.py
+  --adapter "$ADAPTER" --baseline "$BASELINE" --candidate "$CANDIDATE"
+  --only baseline --shape 256 256 256 --slots 1 --mode events
+  --rounds 4 --launches 4 --warmup 2 --output "$RUN/probe.json")
+~~~
+工具会先warmup/validate，再执行测量，timeline仍需核对真实steady区间。
+实际目标需精确标记时，为本轮新增agent内probe，不引用旧仓库脚本。
+
+
 ~~~bash
 HIP_VISIBLE_DEVICES=0 rocprofv3 \
   --kernel-trace --hip-trace --memory-copy-trace --marker-trace \
   --output-format csv --output-directory "$RUN/trace-baseline" \
-  -- python trace_probe.py --variant baseline
+  -- "${TARGET_PROBE[@]}"
 ~~~
 
-`trace_probe.py` 要含明确 warmup 与稳定重复区间。可以 ROCTx 标记 shape/variant；
+本轮 probe 要含明确 warmup 与稳定重复区间。可以 ROCTx 标记 shape/variant；
 不要靠进程启动后第 N 秒猜 warmup 结束。
 
 分析：
@@ -56,15 +72,16 @@ CSV 适合统计；可用工具支持的 pftrace/Perfetto 查看 timeline，
 
 ## 4. 小批 PMC
 
-当时 gfx950 环境验证过的 counter 集合：
+当时 gfx950 环境验证过的 counter 集合；先用timeline确定
+`TARGET_KERNEL_REGEX`，不能把历史symbol当成本轮目标：
 ~~~bash
 HIP_VISIBLE_DEVICES=0 rocprofv3 \
   --pmc SQ_LDS_BANK_CONFLICT SQ_INSTS_MFMA SQ_WAIT_INST_LDS \
         SQ_WAIT_ANY SQ_INSTS_VALU SQ_INSTS_SALU \
-  --kernel-include-regex 'hgemm_fp8' \
+  --kernel-include-regex "$TARGET_KERNEL_REGEX" \
   --kernel-iteration-range 3-6 \
   --output-format csv --output-directory "$RUN/pmc-baseline" \
-  -- python counter_probe.py --variant baseline
+  -- "${TARGET_PROBE[@]}"
 ~~~
 
 这是示例，不是对未来工具版本的保证。先检查同时采集能力；
@@ -129,3 +146,9 @@ shell 的 `**` 需启用 globstar，或用 `find` 得到具体路径。
 > 剩余差距另由指令 encoding/调度/尾部解释，未归因部分明确保留。
 
 **不是**：“看起来像 LDS 问题，所以我改了所有 barrier 后变快了。”
+
+## 8. MXFP thread trace 的细化方法
+
+[MXFP 集成门禁](mxfp-integration.md) 补充 ATT decoder 的 issue/stall 语义、
+barrier重复记录、4/8-wave归一化、推断workgroup cohort、采样CU全SIMD MFMA
+发射空隙及CSV-only采集回退。不得把单wave等待之和或采样CU空隙当全GPU耗时。
