@@ -17,7 +17,7 @@ temp_dir.mkdir(parents=True, exist_ok=True)
 _env = os.environ.copy()
 _env["TORCH_CPP_LOG_LEVEL"] = "ERROR"
 
-DEFAULT_TARGET_HISTORY_CONTEXT_SIZE = 800
+DEFAULT_TARGET_HISTORY_CONTEXT_SIZE = 1000
 
 
 class Agent:
