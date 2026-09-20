@@ -1,10 +1,10 @@
 # 历史案例：gfx950 GEMM（不是当前性能承诺）
 
-这些是本次开发会话的**历史实验**。后来仓库可能重命名/删除了旧 kernel；
-这里的 `fp8_ptpc` 表示当时保存在快路径中的对照，不代表当前仓库一定可 import。
-测量条件、raw timing samples 和 PMC CSV 选列已固化在
-[case-data.json](case-data.json)。其中记录源 artifact 路径与 SHA-256，
-不要求 `/tmp` 永久存在；完整代码/IR 仍需实验目录或对应源码版本才能复现。
+这些是历史实验，不是当前性能承诺。`fp8_ptpc` 等名称仅是历史变体标签，
+不是需要导入的外部模块。测量条件、raw timing samples 和 PMC CSV 选列
+已内嵌在 [case-data.json](case-data.json)，不依赖任何外部实验目录。
+原 artifact 的 SHA-256 仅作历史身份记录，不代表完整代码/IR 已归档；
+本 skill 不提供指向库外源码、私有 helper 或历史脚本的引用。
 
 机器时钟记录与会话日期可能不同，本文不以它们宣称最新数据。
 测试数量也是当时运行结果，不是未来 commit 的保证。
@@ -109,3 +109,9 @@ reference barrier schedule 是与 lane ownership 配套的设计，不是可随�
 3. 源码简化目标可以通过原地 SSA list 实现，不必变成 GPU memory。
 4. 性能结论要带对象：kernel、shape、路径、measurement mode、版本。
 5. 最终数据保留失败实验、短K回退与 known bugs，便于后人证伪。
+
+## 5. MXFP4 / MXFP8 后续历史
+
+12 份专项日志的 scale pipeline、non-preshuffle/preshuffle、AGPR、direct store、
+PyTorch/aiter 调参及后期精简见 [MXFP 案例与纠错](mxfp-case-studies.md)。
+其中包含被后续消融推翻的 copy-atom 归因；不要把早期阶段性解释当最终结论。

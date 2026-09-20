@@ -1,9 +1,7 @@
 {
-  "description": "Historical observations, not a claim about the current checkout. Original file paths are provenance, not required inputs.",
+  "description": "Self-contained historical timing samples and selected counter rows, not current measurements. External artifact paths have been removed. original_artifact_sha256 records historical identity only; all data used by the skill tests is embedded in this file.",
   "timings": {
     "ablation": {
-      "source": "/tmp/scaled_gemm_rootcause/ablation.json",
-      "sha256": "411f6f6f76de2ee873128df1d07cfe559971a7d4590e601419fbcd45adee1959",
       "data": {
         "shape": [
           8192,
@@ -142,11 +140,11 @@
           "unroll": 380.2586793899536,
           "fp8_ptpc": 363.564133644104
         }
-      }
+      },
+      "record_id": "timings/ablation",
+      "original_artifact_sha256": "411f6f6f76de2ee873128df1d07cfe559971a7d4590e601419fbcd45adee1959"
     },
     "kcombo": {
-      "source": "/tmp/scaled_gemm_rootcause/kcombo.json",
-      "sha256": "36fba2f8f9e312a6b580e27aa48b5163988f22ca788e15b0d2382eef3d750029",
       "data": {
         "shape": [
           8192,
@@ -285,11 +283,11 @@
           "kp_id_traversal": 365.66421389579773,
           "fp8_ptpc": 362.8654479980469
         }
-      }
+      },
+      "record_id": "timings/kcombo",
+      "original_artifact_sha256": "36fba2f8f9e312a6b580e27aa48b5163988f22ca788e15b0d2382eef3d750029"
     },
     "final": {
-      "source": "/tmp/scaled_gemm_rootcause/final.json",
-      "sha256": "619a97fa89825062c0406ac46c177c5c7bbe7c05fb88ff1500e6d9be101eba9d",
       "data": {
         "shape": [
           8192,
@@ -386,13 +384,13 @@
           "current": 364.9769723415375,
           "fp8_ptpc": 363.30944299697876
         }
-      }
+      },
+      "record_id": "timings/final",
+      "original_artifact_sha256": "619a97fa89825062c0406ac46c177c5c7bbe7c05fb88ff1500e6d9be101eba9d"
     }
   },
   "pmc": {
     "baseline": {
-      "source": "/tmp/scaled_gemm_rootcause/pmc_baseline/mi355-gpu-45/432144_counter_collection.csv",
-      "sha256": "19967515bda670f62967fe6c64cd05dea1b28589bbe1de812be759ccb5fa4f1d",
       "rows": [
         {
           "Dispatch_Id": "15",
@@ -570,11 +568,11 @@
         "SQ_LDS_BANK_CONFLICT": 52428800.0,
         "SQ_WAIT_ANY": 93457553.0,
         "SQ_WAIT_INST_LDS": 45072222.25
-      }
+      },
+      "record_id": "pmc/baseline",
+      "original_artifact_sha256": "19967515bda670f62967fe6c64cd05dea1b28589bbe1de812be759ccb5fa4f1d"
     },
     "kperm": {
-      "source": "/tmp/scaled_gemm_rootcause/pmc_kperm/mi355-gpu-45/432949_counter_collection.csv",
-      "sha256": "f9ffc8f13661b98c602c2e908600a9c35ffb90ffb8365fd08b91ff93c42ba951",
       "rows": [
         {
           "Dispatch_Id": "15",
@@ -752,11 +750,11 @@
         "SQ_LDS_BANK_CONFLICT": 2097152.0,
         "SQ_WAIT_ANY": 93288027.75,
         "SQ_WAIT_INST_LDS": 25789880.5
-      }
+      },
+      "record_id": "pmc/kperm",
+      "original_artifact_sha256": "f9ffc8f13661b98c602c2e908600a9c35ffb90ffb8365fd08b91ff93c42ba951"
     },
     "fp8_ptpc": {
-      "source": "/tmp/scaled_gemm_rootcause/pmc_fp8_ptpc/mi355-gpu-45/432326_counter_collection.csv",
-      "sha256": "6990a3aa77ffb9d70d07c9930d63faf9e64248c7beec31de162895d878358a23",
       "rows": [
         {
           "Dispatch_Id": "15",
@@ -934,13 +932,13 @@
         "SQ_LDS_BANK_CONFLICT": 2097152.0,
         "SQ_WAIT_ANY": 91206784.0,
         "SQ_WAIT_INST_LDS": 23501462.5
-      }
+      },
+      "record_id": "pmc/fp8_ptpc",
+      "original_artifact_sha256": "6990a3aa77ffb9d70d07c9930d63faf9e64248c7beec31de162895d878358a23"
     }
   },
   "epilogue": {
     "final_8192": {
-      "source": "/tmp/scaled_hti_epilogue_trial/final_8192.json",
-      "sha256": "3db3b84835b4d64ceb57a8ab347d6fda5822eb8867d624adbeeef22a65c63065",
       "data": {
         "shape": [
           8192,
@@ -1037,11 +1035,11 @@
           "current": 366.7060434818268,
           "fp8_ptpc": 363.4028732776642
         }
-      }
+      },
+      "record_id": "epilogue/final_8192",
+      "original_artifact_sha256": "3db3b84835b4d64ceb57a8ab347d6fda5822eb8867d624adbeeef22a65c63065"
     },
     "compare_rawbar_small": {
-      "source": "/tmp/scaled_hti_epilogue_trial/compare_rawbar_small.json",
-      "sha256": "7f5d98fe81a775c3d2701a45b4a546e5d92b2c91135000aaa8caada786c062e1",
       "data": {
         "shape": [
           256,
@@ -1138,7 +1136,9 @@
           "interleaved": 9.141352027654648,
           "current": 9.102914482355118
         }
-      }
+      },
+      "record_id": "epilogue/compare_rawbar_small",
+      "original_artifact_sha256": "7f5d98fe81a775c3d2701a45b4a546e5d92b2c91135000aaa8caada786c062e1"
     }
   }
 }

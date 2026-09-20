@@ -131,7 +131,12 @@ def main():
             samples[name].append(us)
     stats = {name: sample_stats(values) for name, values in samples.items()}
     props = torch.cuda.get_device_properties(torch.cuda.current_device())
-    import flydsl
+    # FlyDSL is optional for the bundled PyTorch-only A/A diagnostic.
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        flydsl_version = version("flydsl")
+    except PackageNotFoundError:
+        flydsl_version = None
     output = {
         "time_utc": datetime.now(timezone.utc).isoformat(),
         "shape": args.shape, "slots": args.slots, "launches": args.launches,
@@ -139,7 +144,7 @@ def main():
         "mode": args.mode, "execution_order": orders, "raw_us": samples, "stats": stats,
         "environment": {
             "python": sys.version, "torch": torch.__version__, "HIP": torch.version.hip,
-            "flydsl_path": flydsl.__file__, "device": str(props),
+            "flydsl_version": flydsl_version, "device": str(props),
             "note": "No clock changes made. Record clocks/power/concurrency externally.",
         },
         "sources": sources,

@@ -5,23 +5,29 @@
 **先查 dispatch**：打印/记录被选 symbol、constexpr config、grid、block、dynamic
 shape/stride 和 cache key。只看 Python 函数名可能分析了错误 specialization。
 
-FlyDSL 示例（先用小合法 shape 触发同一 specialization）：
+FlyDSL 的真实实现与 adapter 须先为当前任务保存在 agent 库内。
+从 skill 目录执行下列模板；`ADAPTER/BASELINE/CANDIDATE` 必须指向
+agent 内本轮代码，不能指向已删除的旧项目文件。库内PyTorch诊断不产生
+FlyDSL ISA，因此不能用它冒充目标kernel采集。
+
 ~~~bash
-# compile_probe.py 是你为当前 policy 写的单次调用程序，不含 autotuner。
-HIP_VISIBLE_DEVICES=0 \
-FLYDSL_RUNTIME_CACHE_DIR="$RUN/cache-baseline" \
-FLYDSL_DUMP_IR=1 FLYDSL_DUMP_DIR="$RUN/ir-baseline" \
-python compile_probe.py --variant baseline > "$RUN/compile-baseline.log" 2>&1
-
-HIP_VISIBLE_DEVICES=0 \
-FLYDSL_RUNTIME_CACHE_DIR="$RUN/cache-candidate" \
-FLYDSL_DUMP_IR=1 FLYDSL_DUMP_DIR="$RUN/ir-candidate" \
-python compile_probe.py --variant candidate > "$RUN/compile-candidate.log" 2>&1
-
+# 三个变量由当前任务设置为 agent 内实现/adapter 文件。
+: "${ADAPTER:?设置本轮 agent 内 adapter}"
+: "${BASELINE:?设置本轮 agent 内 baseline}"
+: "${CANDIDATE:?设置本轮 agent 内 candidate}"
+for variant in baseline candidate; do
+  FLYDSL_RUNTIME_CACHE_DIR="$RUN/cache-$variant" \
+  FLYDSL_DUMP_IR=1 FLYDSL_DUMP_DIR="$RUN/ir-$variant" \
+  python scripts/benchmark_ab.py \
+    --adapter "$ADAPTER" --baseline "$BASELINE" --candidate "$CANDIDATE" \
+    --only "$variant" --shape 256 256 256 --slots 1 \
+    --rounds 1 --launches 1 --warmup 1 --mode events \
+    --output "$RUN/$variant-probe.json"
+done
 find "$RUN"/ir-* -name '*.s' -print
 ~~~
 
-上述环境变量在本仓库实战使用过，换 FlyDSL 版本仍要检查是否存在。
+上述环境变量在历史案例中使用过，换 FlyDSL 版本仍要检查是否存在。
 **相同 symbol 的多个 variant 不能共用 dump 目录**，后一次可能覆盖前一次。
 pipeline 数字编号不是稳定 API，按 pass 名找文件。
 

@@ -1,10 +1,13 @@
 """CPU-only regression tests for skill tools and documentation structure."""
 from collections import Counter
 import importlib.util
+import hashlib
 import json
 import math
 from pathlib import Path
 import re
+import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,6 +124,37 @@ class TestCounters(unittest.TestCase):
             pmc.summarize_rows([self.row(value="nan")])
 
 
+class TestStandaloneAdapter(unittest.TestCase):
+    def load_adapter(self):
+        path = ROOT / "examples" / "scaled_gemm_adapter.py"
+        spec = importlib.util.spec_from_file_location("_skill_adapter_cpu_test", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_load_without_kernel_package_or_path_injection(self):
+        adapter = self.load_adapter()
+        search_path = list(sys.path)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "implementation.py"
+            path.write_text("def run(*args, **kwargs):\n    return 42\n")
+            try:
+                module = adapter._load(path, "cpu_test")
+                self.assertEqual(module.run(), 42)
+                self.assertEqual(sys.path, search_path)
+            finally:
+                sys.modules.pop("_skill_demo_cpu_test", None)
+
+    def test_reject_missing_entrypoint(self):
+        adapter = self.load_adapter()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "implementation.py"
+            path.write_text("VALUE = 42\n")
+            with self.assertRaisesRegex(ValueError, "callable run"):
+                adapter._load(path, "invalid_test")
+            self.assertNotIn("_skill_demo_invalid_test", sys.modules)
+
+
 class TestDocs(unittest.TestCase):
     def test_skill_frontmatter(self):
         text = (ROOT / "SKILL.md").read_text()
@@ -132,7 +166,9 @@ class TestDocs(unittest.TestCase):
             text = path.read_text()
             for link in re.findall(r"\[[^\]]*\]\(([^)]+)\)", text):
                 if "://" not in link and not link.startswith("#"):
-                    self.assertTrue((path.parent / link.split("#")[0]).exists(), (path, link))
+                    target = (path.parent / link.split("#")[0]).resolve()
+                    self.assertTrue(target.is_relative_to(ROOT.resolve()), (path, link))
+                    self.assertTrue(target.exists(), (path, link))
             inside = False
             marker = None
             for line in text.splitlines():
@@ -144,6 +180,70 @@ class TestDocs(unittest.TestCase):
                         marker = current
                     inside = not inside
             self.assertFalse(inside, f"Unclosed code fence in {path}")
+
+    def test_mxfp_source_index_and_citations(self):
+        # The skill remains usable after temporary logs/artifacts are removed.
+        data = json.loads((ROOT / "references" / "mxfp-source-index.json").read_text())
+        self.assertEqual(data["schema_version"], 2)
+        sources = {row["path"]: row for row in data["sources"]}
+        self.assertEqual(len(sources), len(data["sources"]))
+        self.assertEqual(len(sources), 12)
+        self.assertNotIn("temp/mxfpsummary.jsonl", sources)
+        for source in sources.values():
+            self.assertRegex(source["sha256"], r"^[0-9a-f]{64}$")
+            self.assertGreater(source["lines"], 0)
+            self.assertGreater(source["bytes"], 0)
+        seen = set()
+        for record in data["evidence"]:
+            key = (record["source"], record["line"])
+            self.assertNotIn(key, seen)
+            seen.add(key)
+            self.assertIn(record["source"], sources)
+            self.assertTrue(1 <= record["line"] <= sources[record["source"]]["lines"])
+            self.assertRegex(record["content_sha256"], r"^[0-9a-f]{64}$")
+            self.assertTrue(record["excerpt"])
+            self.assertGreaterEqual(record["original_excerpt_start_character"], 0)
+            self.assertRegex(record["original_excerpt_sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(
+                hashlib.sha256(record["excerpt"].encode()).hexdigest(),
+                record["excerpt_sha256"],
+            )
+            self.assertIsInstance(record["excerpt_edited"], bool)
+            if record["kind"] == "observation":
+                self.assertEqual(record["role"], "user")
+        citation_count = 0
+        for path in (ROOT / "references").glob("mxfp-*.md"):
+            for name, locations in re.findall(
+                r"`(mxfp\w*):((?:L\d+|[-,])+?)`", path.read_text()
+            ):
+                citation_count += 1
+                source = sources[f"temp/{name}.jsonl"]
+                for line in re.findall(r"\d+", locations):
+                    self.assertTrue(1 <= int(line) <= source["lines"], (path, name, line))
+        self.assertGreater(citation_count, 0)
+
+    def test_no_external_source_tree_references(self):
+        # Installed SDK/library names are fine. Old source trees, scripts and
+        # artifact paths are not. Do not scan this test's forbidden-pattern list.
+        forbidden = re.compile(
+            r"/home/|/tmp/|/path/to|agent_space|"
+            r"(?:kernels|csrc|op_tests)/|github\.com|"
+            r"(?:compile_probe|counter_probe|trace_probe|test_scaled_gemm_gfx950)\.py"
+        )
+        for path in ROOT.rglob("*"):
+            if not path.is_file() or path.suffix not in (".md", ".json", ".py"):
+                continue
+            if "__pycache__" in path.parts or "tests" in path.relative_to(ROOT).parts:
+                continue
+            self.assertIsNone(forbidden.search(path.read_text()), path)
+
+    def test_embedded_case_data_uses_record_ids(self):
+        data = json.loads((ROOT / "references" / "case-data.json").read_text())
+        for group in ("timings", "pmc", "epilogue"):
+            for record in data[group].values():
+                self.assertNotIn("source", record)
+                self.assertTrue(record["record_id"])
+                self.assertRegex(record["original_artifact_sha256"], r"^[0-9a-f]{64}$")
 
     def test_historical_data_matches_claim(self):
         data = json.loads((ROOT / "references" / "case-data.json").read_text())

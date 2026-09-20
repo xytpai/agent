@@ -98,3 +98,10 @@ slice-K每wave直接读自身 K范围可比逐slice分支更简单，
 如果泛化条件没有验证，不要顺手推广。如果用户要通用实现，
 不能永久删除旧feature以维持快路径；用清晰参数与specialization保留功能。
 优化报告可以说“主因已修复、尚差2us”，不能靠巨大rewrite隐藏剩余差距。
+
+## 7. MXFP4 / MXFP8 专项
+
+MX 的 scale 在 K 内参与计算，不要套 PTPC epilogue 公式。
+优先按 [MXFP 优化手册](mxfp-optimization.md) 检查 packing、scale 生命周期、
+有效 DMA 覆盖、chunk 双缓冲、SGPR 公共地址及 HTI 发射位置。
+常用 K512 chunk / fence / direct store 都有适用范围和失败消融，不能无条件推广。
