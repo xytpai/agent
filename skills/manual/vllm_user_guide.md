@@ -4,7 +4,7 @@
 
 ```bash
 export HIP_VISIBLE_DEVICES=0,1,2,3
-export MODEL_NAME=Qwen/Qwen2.5-32B-Instruct
+export MODEL_NAME=Qwen/Qwen3-32B
 export SERVE_PORT=8900
 export SERVE_TP=1
 ```
