@@ -25,8 +25,6 @@ vllm serve ${MODEL_NAME} \
   --enable-chunked-prefill \
   --performance-mode balanced \
   --optimization-level 2 \
-  --max-logprobs 20 \
   --generation-config auto \
-  --uvicorn-log-level info \
-  --max-log-len 256
+  2>&1 | tee log
 ```
