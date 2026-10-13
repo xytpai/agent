@@ -7,6 +7,11 @@ from openai import DefaultHttpxClient, OpenAI
 
 EFFORT_LEVELS = ("auto", "none", "minimal", "low", "medium", "high", "xhigh", "max")
 
+# These internal gateways use Bearer auth and skip TLS certificate verification.
+LOCAL_GATEWAY_URLS = [
+    "https://10.67.77.196/v1",
+]
+
 
 def resolve_effort(effort: str | None = None) -> str | None:
     if effort is None:
@@ -38,11 +43,11 @@ class OpenaiBackend(AgentBackend):
     def initialize(self):
         BASE_URL = os.environ.get("BASE_URL")
         API_KEY = os.environ.get("API_KEY")
-        local_gateway = (BASE_URL or "").rstrip("/") == "https://10.67.77.196/v1"
+        local_gateway = (BASE_URL or "").rstrip("/") in LOCAL_GATEWAY_URLS
         if local_gateway:
             warnings.warn(
                 "TLS certificate verification is disabled ONLY for the configured "
-                "10.67.77.196 gateway. Use only on a trusted internal network.",
+                "internal gateway. Use only on a trusted internal network.",
                 RuntimeWarning,
             )
         self.client = OpenAI(
