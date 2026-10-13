@@ -1,10 +1,16 @@
 import argparse
 import os
+import warnings
 from abc import ABC, abstractmethod
 from typing import Iterator
-from openai import OpenAI
+from openai import DefaultHttpxClient, OpenAI
 
 EFFORT_LEVELS = ("auto", "none", "minimal", "low", "medium", "high", "xhigh", "max")
+
+# These internal gateways use Bearer auth and skip TLS certificate verification.
+LOCAL_GATEWAY_URLS = [
+    "https://10.67.77.196/v1",
+]
 
 
 def resolve_effort(effort: str | None = None) -> str | None:
@@ -37,10 +43,18 @@ class OpenaiBackend(AgentBackend):
     def initialize(self):
         BASE_URL = os.environ.get("BASE_URL")
         API_KEY = os.environ.get("API_KEY")
+        local_gateway = (BASE_URL or "").rstrip("/") in LOCAL_GATEWAY_URLS
+        if local_gateway:
+            warnings.warn(
+                "TLS certificate verification is disabled ONLY for the configured "
+                "internal gateway. Use only on a trusted internal network.",
+                RuntimeWarning,
+            )
         self.client = OpenAI(
             base_url=BASE_URL,
-            api_key="dummy",
-            default_headers={"Ocp-Apim-Subscription-Key": API_KEY},
+            api_key=API_KEY if local_gateway else "dummy",
+            default_headers={} if local_gateway else {"Ocp-Apim-Subscription-Key": API_KEY},
+            http_client=DefaultHttpxClient(verify=False, follow_redirects=False) if local_gateway else None,
         )
         self.model = os.environ.get("MODEL_NAME")
 
@@ -71,10 +85,7 @@ def get_backend(effort: str | None = None):
     model_name = os.environ.get("MODEL_NAME")
     if not model_name:
         raise ValueError("MODEL_NAME must be set")
-    if "gpt" in model_name.lower():
-        backend = OpenaiBackend(effort=effort)
-    else:
-        raise ValueError(f"Unsupported model: {model_name}")
+    backend = OpenaiBackend(effort=effort)
     print(
         f"==== SYSTEM ==== MODEL_NAME:{model_name} "
         f"REASONING_EFFORT:{backend.reasoning_effort or 'auto (provider default)'}\n",
