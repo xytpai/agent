@@ -1,3 +1,4 @@
 anthropic
 openai
 flask>=3.1,<4
+cryptography>=42

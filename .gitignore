@@ -159,3 +159,6 @@ log
 
 temp
 .ruff_cache
+
+# Local HTTPS certificate and private key
+.certs/

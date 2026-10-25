@@ -1,9 +1,11 @@
-"""Local agent console. Run ``python server.py`` and open http://127.0.0.1:5500.
+"""Local agent console. Run ``python server.py`` and open https://127.0.0.1:5500.
 
 MODEL_NAME selects the default model; AGENT_MODELS optionally supplies a comma-
 or newline-separated dropdown list. API credentials stay in the environment.
 Set AGENT_WEB_USERNAME and AGENT_WEB_PASSWORD to unlock the console.
-This console executes agent tools on your machine; use HTTPS for remote access.
+HTTPS is enabled by default with a persistent, self-signed localhost certificate.
+For remote access, supply a trusted certificate with --ssl-cert and --ssl-key.
+This console executes agent tools on your machine; restrict remote access.
 """
 
 import argparse
@@ -15,6 +17,7 @@ import secrets
 import os
 import re
 import signal
+import ssl
 import stat
 import subprocess
 import sys
@@ -26,6 +29,8 @@ from datetime import datetime, timedelta
 
 from flask import Flask, Response, g, jsonify, redirect, render_template_string, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
+
+from core.web_tls import create_ssl_context
 
 AGENT_DIR = Path(__file__).resolve().parent
 LOG_PATH = AGENT_DIR / "log"
@@ -58,7 +63,7 @@ app.config.update(
     SESSION_COOKIE_NAME="agent_console_session",
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=os.environ.get("AGENT_WEB_COOKIE_SECURE", "").lower() in {"1", "true", "yes"},
+    SESSION_COOKIE_SECURE=True,  # Login sessions must only travel over HTTPS.
     PERMANENT_SESSION_LIFETIME=timedelta(seconds=AUTH_TTL),
     SESSION_REFRESH_EACH_REQUEST=False,
 
@@ -1181,7 +1186,7 @@ def require_login():
                 return reject_post(
                     "csrf_session_missing",
                     "登录会话 Cookie 缺失或已失效，请重新输入账号密码。请允许此站点的 Cookie；"
-                    "若使用 HTTP 访问，不要设置 AGENT_WEB_COOKIE_SECURE=1。"
+                    "请使用 HTTPS 地址访问，登录会话 Cookie 仅通过 HTTPS 发送。"
                     "服务重启后需要重新打开登录页。",
                 )
             return reject_post(
@@ -1575,8 +1580,25 @@ if __name__ == "__main__":
                         help="Bind address; default 127.0.0.1. Non-loopback requires a trusted network.")
     parser.add_argument("--trusted-host", action="append", default=[],
                         help="Deprecated compatibility option; ignored (all Hosts are trusted)")
+    parser.add_argument("--ssl-cert", default=os.environ.get("AGENT_WEB_SSL_CERT") or None,
+                        help="PEM certificate/full-chain path (or AGENT_WEB_SSL_CERT); requires --ssl-key.")
+    parser.add_argument("--ssl-key", default=os.environ.get("AGENT_WEB_SSL_KEY") or None,
+                        help="PEM private key path (or AGENT_WEB_SSL_KEY); requires --ssl-cert.")
     args = parser.parse_args()
+    try:
+        tls_context = create_ssl_context(
+            args.ssl_cert, args.ssl_key, cert_dir=AGENT_DIR / ".certs"
+        )
+    except (OSError, ValueError, RuntimeError, ssl.SSLError) as exc:
+        parser.error(f"HTTPS setup failed: {exc}")
+    if not args.ssl_cert:
+        app.logger.warning(
+            "Using a self-signed localhost certificate from %s. "
+            "Browsers will warn until it is trusted; use a trusted certificate for remote access.",
+            AGENT_DIR / ".certs",
+        )
     if args.host not in {"127.0.0.1", "localhost", "::1"}:
         app.logger.warning("Non-loopback binding: this console can execute commands. "
                            "Use only on a trusted network with access controls.")
-    app.run(host=args.host, port=args.port, threaded=True, debug=False)
+    app.run(host=args.host, port=args.port, threaded=True, debug=False,
+            ssl_context=tls_context)
