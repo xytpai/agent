@@ -163,7 +163,7 @@ input[type=checkbox] { accent-color:var(--accent); }
 #out { margin:0; font:12.5px/1.85 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color:#c9d8ec; white-space:pre-wrap; overflow-wrap:anywhere; tab-size:4; }
 #out.nowrap { white-space:pre; overflow-wrap:normal; }
 .log-system { color:#82aaff; }
-.log-thought { color:#c7a5ff; }
+.log-think { color:#c7a5ff; }
 .log-action { color:#f1c878; }
 .log-observation { color:#78d4e6; }
 .log-final { color:#73f5c1; }
@@ -296,7 +296,7 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
         </div>
         <div class="console-footer"><span id="run-meta">尚未开始 · 输出同步保存至 ./log</span><span><span id="elapsed">00:00</span> &nbsp; / &nbsp; <span id="line-count">0</span> 行</span></div>
       </div>
-      <div class="legend" aria-hidden="true"><span class="log-system">SYSTEM</span><span class="log-thought">THOUGHT</span><span class="log-action">ACTION</span><span class="log-observation">OBSERVATION</span><span class="log-final">FINAL</span></div>
+      <div class="legend" aria-hidden="true"><span class="log-system">SYSTEM</span><span class="log-think">THINK</span><span class="log-action">ACTION</span><span class="log-observation">OBSERVATION</span><span class="log-final">FINAL</span></div>
     </section>
   </main>
 
@@ -397,7 +397,7 @@ function jumpToBottom() {
 }
 // BEGIN LOG HIGHLIGHTER
 const LOG_COLORS = {
-  thought:"log-thought", action:"log-action", action_input:"log-action",
+  think:"log-think", action:"log-action", action_input:"log-action",
   observation:"log-observation", final_answer:"log-final", system:"log-system",
 };
 function newLogState() {
@@ -431,7 +431,7 @@ function colorLogLine(line, initial) {
   // Untagged/legacy output uses a heading until the next heading. Never let
   // "Action:" or a traceback inside an observation override its block color.
   if (!state.block && atStart) {
-    const heading = line.match(/^[ \t]*(Thought|Action[ \t_]+Input|Action|Observation|Final[ \t_]+Answer|System)[ \t]*:/i);
+    const heading = line.match(/^[ \t]*(Think|Action[ \t_]+Input|Action|Observation|Final[ \t_]+Answer|System)[ \t]*:/i);
     if (heading) {
       state.legacy = LOG_COLORS[heading[1].toLowerCase().replace(/[ \t]+/g, "_")];
     } else if (/^[ \t]*(?:==== SYSTEM ====|history_context_usage:)/i.test(line)) {
@@ -440,7 +440,7 @@ function colorLogLine(line, initial) {
       state.legacy = "log-error";
     }
   }
-  const tags = /<([|\\/])(thought|action_input|action|observation|final_answer|system)\|>/gi;
+  const tags = /<([|\\/])(think|action_input|action|observation|final_answer|system)\|>/gi;
   let offset = 0;
   for (const match of line.matchAll(tags)) {
     emit(line.slice(offset, match.index));
@@ -469,7 +469,7 @@ function safeLogCut(text, cut) {
   // Don't cut through a delimiter when trimming a very long unbroken line.
   const start = text.lastIndexOf("<", cut - 1);
   if (start >= 0 && cut - start < 32) {
-    const tag = text.slice(start).match(/^<([|\\/])(thought|action_input|action|observation|final_answer|system)\|>/i);
+    const tag = text.slice(start).match(/^<([|\\/])(think|action_input|action|observation|final_answer|system)\|>/i);
     if (tag && start + tag[0].length > cut) return start;
     const tail = text.slice(start).toLowerCase();
     if (Object.keys(LOG_COLORS).some(name =>
