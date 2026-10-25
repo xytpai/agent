@@ -130,8 +130,8 @@ class ActionRunner:
             r"|(?i:Final Answer[ \t]*:)"
         )
         self.block_start_pattern = re.compile(
-            r"(?i:<\|(?:thought|action|observation|final_answer)\|>)"
-            r"|(?i:(?:Thought|Action|Observation|Final Answer)[ \t]*:)"
+            r"(?i:<\|(?:think|action|observation|final_answer)\|>)"
+            r"|(?i:(?:Think|Action|Observation|Final Answer)[ \t]*:)"
         )
         global GLOBAL_ACTIONS
         self.actions = {}
@@ -246,7 +246,7 @@ class ActionRunner:
             else "On POSIX systems, run_cmd uses bash when it is available."
         )
         text_head = f"""Use the tagged ReAct format when an action is required:
-<|thought|>explain what you need to do next.<\\thought|>
+<|think|>explain what you need to do next.<\\think|>
 <|action|>$ACTION<\\action|>
 <|action_input|>
 ```text

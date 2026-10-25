@@ -43,16 +43,16 @@ class Agent:
         self.memory = []
         self.react_note = """IMPORTANT:
 You are running in a ReAct loop:
-<|thought|>...<\\thought|> -> <|action|>...<\\action|> ->
-<|observation|>...<\\observation|> -> <|thought|>...<\\thought|>.
+<|think|>...<\\think|> -> <|action|>...<\\action|> ->
+<|observation|>...<\\observation|> -> <|think|>...<\\think|>.
 Every opening tag must have its matching closing tag.
 When you need to use a tool, output exactly one action and then stop immediately.
-Never output a second paired thought or action before the system returns an observation.
+Never output a second paired think block or action before the system returns an observation.
 Never write an observation yourself; only the system writes it after an action runs.
 Never repeat or quote a previous action block in your response.
 After <\\action_input|>, output nothing else and wait for an observation.
 Use this format:
-<|thought|>explain the next step briefly.<\\thought|>
+<|think|>explain the next step briefly.<\\think|>
 <|action|>one available action name<\\action|>
 <|action_input|>
 ```text
@@ -62,7 +62,7 @@ arguments for the action
 
 After the system returns a paired observation, use it to decide the next step.
 When the task is complete, do not call another action. Return:
-<|thought|>brief summary of what you learned.<\\thought|>
+<|think|>brief summary of what you learned.<\\think|>
 <|final_answer|>the answer for the user.<\\final_answer|>
 
 If an observation shows an action failed, reason about why it failed and try a corrected action.
