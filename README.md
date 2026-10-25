@@ -4,7 +4,7 @@ A lightweight ReAct agent that combines language models with tool execution to t
 
 ### Backend Test
 
-```
+```bash
 export BASE_URL=${YOUR_LLM_GATEWAY_URL}
 export API_KEY=${YOUR_LLM_GATEWAY_API_KEY}
 export MODEL_NAME=${YOUR_LLM_MODEL_NAME}
@@ -17,4 +17,12 @@ python core/backends.py "Introduce yourself"
 
 ```bash
 python core/agent.py --input=input.txt --history=new 2>&1 | tee log
+```
+
+### Web server
+
+```bash
+export AGENT_WEB_USERNAME="your-username"
+export AGENT_WEB_PASSWORD="your-password"
+python server.py
 ```
