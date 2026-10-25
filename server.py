@@ -15,13 +15,14 @@ import secrets
 import os
 import re
 import signal
+import stat
 import subprocess
 import sys
 import threading
 import time
 import uuid
 from pathlib import Path
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from flask import Flask, Response, g, jsonify, redirect, render_template_string, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -29,7 +30,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 AGENT_DIR = Path(__file__).resolve().parent
 LOG_PATH = AGENT_DIR / "log"
 TEMP_DIR = AGENT_DIR / "temp"
-HISTORY_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
+HISTORY_PREVIEW_BYTES = 256 * 1024
+HISTORY_PREVIEW_LINES = 50
 EFFORT_LEVELS = ("auto", "none", "minimal", "low", "medium", "high", "xhigh", "max")
 RUN_LOCK = threading.Lock()
 STATE_LOCK = threading.Lock()
@@ -192,6 +194,28 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
   .panel-head, .form-body { padding:16px; } .toolbar { padding:10px 12px; }
   .log-viewport { padding:14px; } footer { flex-direction:column; gap:5px; }
 }
+
+.tabs { display:flex; gap:8px; margin:0 0 20px; }
+.tabs [aria-selected=true] { color:var(--accent); border-color:#47796a; background:#19342e; }
+.history-layout { display:grid; grid-template-columns:320px minmax(0,1fr); gap:20px; align-items:start; }
+.history-list { max-height:50vh; overflow:auto; padding:10px; scrollbar-color:#344a64 #0b1220; }
+.history-file { display:block; width:100%; text-align:left; padding:12px; margin:0 0 6px;
+  border:1px solid transparent; border-radius:10px; background:#0b1320; color:var(--text); }
+.history-file[aria-pressed=true] { border-color:#47796a; background:#19342e; }
+.history-file strong { display:block; font-size:13px; overflow-wrap:anywhere; }
+.history-file small { display:block; color:var(--muted); margin-top:4px; }
+.history-preview { height:clamp(360px,65vh,850px); overflow:auto; padding:18px; background:#080e18; scrollbar-color:#344a64 #0b1220; }
+.history-preview pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; font:12px/1.8 ui-monospace, monospace; color:#c9d8ec; }
+.history-entry { margin-bottom:14px; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.history-entry-head { padding:9px 12px; background:#152034; color:#b9cde8; font-size:11px; overflow-wrap:anywhere; }
+.history-entry pre { padding:12px; }
+.history-entry details { border-top:1px solid var(--line); }
+.history-entry summary { cursor:pointer; color:var(--muted); padding:6px 12px; font-size:11px; }
+.history-error { color:var(--danger); font-size:12px; margin:8px 0; }
+.history-status { min-height:22px; color:var(--muted); font-size:12px; padding:0 18px 12px; overflow-wrap:anywhere; }
+#history-title { overflow-wrap:anywhere; min-width:0; }
+#create-history-form textarea { min-height:100px; }
+@media (max-width:950px) { .history-layout { grid-template-columns:1fr; } .history-list { max-height:30vh; } }
 </style>
 </head>
 <body>
@@ -202,7 +226,11 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
   </header>
   <div class="intro"><div><h2>想法进来，行动出去。</h2><p>选择模型，发起任务，在一个窗口里观察 Agent 的每一步。</p></div><div class="eyebrow">THINK → ACT → OBSERVE</div></div>
   <div id="notice" class="notice" hidden></div>
-  <main class="workspace">
+  <nav class="tabs" role="tablist" aria-label="控制台视图">
+    <button type="button" class="btn" id="tab-run" role="tab" aria-selected="true" aria-controls="run-panel">▶ 运行控制台</button>
+    <button type="button" class="btn" id="tab-history" role="tab" aria-selected="false" aria-controls="history-panel" tabindex="-1">◷ History / 会话文件</button>
+  </nav>
+  <main id="run-panel" class="workspace" role="tabpanel" aria-labelledby="tab-run">
     <section class="panel" aria-label="运行配置">
       <div class="panel-head"><span class="panel-title"><span class="panel-index">01</span>任务配置</span><span class="eyebrow">CONFIGURE</span></div>
       <form id="form" class="form-body">
@@ -222,9 +250,10 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
         </div>
         <div class="field">
           <label for="history">会话 / History</label>
-          <div class="row"><input id="history" name="history" value="new" required maxlength="64" pattern="[A-Za-z0-9._\-]{1,64}" list="history-list" spellcheck="false" autocomplete="off"><button class="btn small" id="new-history" type="button">＋ 新会话</button></div>
+          <div class="row"><input id="history" name="history" value="new" required maxlength="255" list="history-list" spellcheck="false" autocomplete="off"><button class="btn small" id="new-history" type="button">＋ 新会话</button></div>
           <datalist id="history-list"></datalist>
-          <p class="help">同名会话继续上下文；“新会话”生成独立名称。new 也是普通会话名。</p>
+          <p class="help">同名会话继续上下文；History 选项卡可浏览、预览并新建文件。</p>
+          <button type="button" class="btn small" id="browse-history" style="margin-top:8px">浏览 / 预览会话文件 →</button>
         </div>
         <div class="field">
           <label for="input">任务指令 / Prompt</label>
@@ -270,6 +299,41 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
       <div class="legend" aria-hidden="true"><span class="log-system">SYSTEM</span><span class="log-thought">THOUGHT</span><span class="log-action">ACTION</span><span class="log-observation">OBSERVATION</span><span class="log-final">FINAL</span></div>
     </section>
   </main>
+
+  <section id="history-panel" role="tabpanel" aria-labelledby="tab-history" hidden>
+    <div class="history-layout">
+      <section class="panel" aria-label="History 文件列表">
+        <div class="panel-head"><span class="panel-title">temp / *.jsonl <small id="history-total"></small></span><button type="button" class="btn small" id="history-refresh">刷新</button></div>
+        <div style="padding:14px 18px">
+          <label for="history-search">搜索文件</label><input id="history-search" type="search" placeholder="按文件名搜索…">
+          <p class="help">读取当前 server.py 同级的 temp 目录；按修改时间排序。</p>
+        </div>
+        <div id="history-files" class="history-list" aria-label="会话文件"></div>
+        <div id="history-list-status" class="history-status" role="status"></div>
+        <details id="history-create" class="form-body" style="border-top:1px solid var(--line)">
+          <summary style="cursor:pointer;color:var(--accent)">＋ 新建 / 导入 JSONL 文件</summary>
+          <form id="create-history-form" style="margin-top:14px">
+            <div class="field"><label for="history-new-name">文件名（自动补 .jsonl）</label><input id="history-new-name" name="name" required maxlength="255" placeholder="例如 experiment-01" autocomplete="off"></div>
+            <div class="field"><label for="history-upload">导入本地文件（可选）</label><input id="history-upload" type="file" accept=".jsonl,application/json,text/plain"></div>
+            <div class="field"><label for="history-new-content">初始 JSONL 内容（可选）</label><textarea id="history-new-content" name="content" spellcheck="false" placeholder='每行一个 JSON：{"role":"user","content":"任务内容"}'></textarea>
+            <p class="help">留空创建空会话；导入记录需有 role 和 content。只新建文件，不覆盖或改写原有记录。</p></div>
+            <button type="submit" class="btn" id="history-create-submit">创建文件</button>
+            <div id="history-create-status" class="help" role="status"></div>
+          </form>
+        </details>
+      </section>
+      <section class="panel" aria-label="History 预览">
+        <div class="panel-head console-top"><span class="panel-title" id="history-title">选择一个 JSONL 文件</span><button type="button" class="btn small" id="history-use" disabled>用于下一次运行 →</button></div>
+        <div class="toolbar">
+          <div class="tools"><label for="history-view">预览方式 <select id="history-view"><option value="readable">会话内容</option><option value="raw">原始 JSONL</option></select></label></div>
+          <button type="button" class="btn small" id="history-preview-refresh" disabled>重新读取</button>
+        </div>
+        <div id="history-preview" class="history-preview" tabindex="0"><p>在左侧选择文件，查看消息、工具输出及原始 JSONL。</p></div>
+        <div class="console-footer"><span id="history-page-info">每页最多 50 行 / 256 KiB，不修改原文件。</span><div class="tools"><button type="button" class="btn small" id="history-prev" disabled>上一页</button><button type="button" class="btn small" id="history-next" disabled>下一页</button></div></div>
+        <div id="history-preview-status" class="history-status" role="status"></div>
+      </section>
+    </div>
+  </section>
   <footer><span>仅供可信本地使用 · Agent 可执行本机命令，请确认任务内容。</span><span>NO BUILD STEP. JUST RUN.</span></footer>
 </div>
 <div id="toast" role="status" hidden></div>
@@ -318,6 +382,7 @@ function updateModel() {
 }
 function setBusy(busy) {
   running = busy;
+  updateHistoryUse();
   for (const el of form.querySelectorAll("input, select, textarea, button")) el.disabled = busy;
   $("run").disabled = busy || !config;
   $("stop").disabled = !busy || !runId;
@@ -330,41 +395,160 @@ function tick() {
 function jumpToBottom() {
   userScrolled = false; viewport.scrollTop = viewport.scrollHeight; $("jump").hidden = true;
 }
-function classify(line) {
-  if (/Traceback|^(?:\w*Error|Exception):/.test(line)) return "log-error";
-  if (/==== SYSTEM ====|^history_context_usage:/.test(line)) return "log-system";
-  if (/<\|thought\|>|^Thought:/.test(line)) return "log-thought";
-  if (/<\|action(?:_input)?\|>|^Action:/.test(line)) return "log-action";
-  if (/<\|observation\|>|^Observation:/.test(line)) return "log-observation";
-  if (/<\|final_answer\|>|^Final Answer:/.test(line)) return "log-final";
-  return "";
+// BEGIN LOG HIGHLIGHTER
+const LOG_COLORS = {
+  thought:"log-thought", action:"log-action", action_input:"log-action",
+  observation:"log-observation", final_answer:"log-final", system:"log-system",
+};
+function newLogState() {
+  return {block:"", legacy:"", fence:"", fenceLength:0, lineStart:true};
 }
-function spanFor(text) {
-  const span = document.createElement("span");
-  span.textContent = text; span.className = classify(text); return span;
-}
-function renderLines(text) {
-  // Only update the partial last line; never interpret model output as HTML.
-  if (out.lastChild && !out.lastChild.textContent.endsWith("\n")) {
-    text = out.lastChild.textContent + text; out.lastChild.remove();
+function logColor(state) { return LOG_COLORS[state.block] || state.legacy; }
+function colorLogLine(line, initial) {
+  const state = {...initial}, runs = [];
+  const atStart = state.lineStart;
+  state.lineStart = line.endsWith("\n");
+  function emit(text, color = logColor(state)) {
+    if (!text) return;
+    const last = runs[runs.length - 1];
+    if (last && last.color === color) last.text += text;
+    else runs.push({text, color});
   }
-  const fragment = document.createDocumentFragment();
-  for (const line of text.match(/[^\n]*\n|[^\n]+$/g) || []) fragment.appendChild(spanFor(line));
-  out.appendChild(fragment);
+  // Fenced code belongs to its enclosing block, even when it quotes ReAct tags.
+  if (state.fence) {
+    emit(line);
+    const closing = atStart && line.match(/^[ \t]*(`{3,}|~{3,})[ \t]*(?:\r?\n)?$/);
+    if (closing && closing[1][0] === state.fence && closing[1].length >= state.fenceLength) {
+      state.fence = ""; state.fenceLength = 0;
+    }
+    return {runs, state};
+  }
+  const fence = atStart && line.match(/^[ \t]*(`{3,}|~{3,})/);
+  if (fence) {
+    state.fence = fence[1][0]; state.fenceLength = fence[1].length;
+    emit(line); return {runs, state};
+  }
+  // Untagged/legacy output uses a heading until the next heading. Never let
+  // "Action:" or a traceback inside an observation override its block color.
+  if (!state.block && atStart) {
+    const heading = line.match(/^[ \t]*(Thought|Action[ \t_]+Input|Action|Observation|Final[ \t_]+Answer|System)[ \t]*:/i);
+    if (heading) {
+      state.legacy = LOG_COLORS[heading[1].toLowerCase().replace(/[ \t]+/g, "_")];
+    } else if (/^[ \t]*(?:==== SYSTEM ====|history_context_usage:)/i.test(line)) {
+      state.legacy = "log-system";
+    } else if (/^[ \t]*(?:Traceback\b|(?:[\w.]*Error|Exception):)/.test(line)) {
+      state.legacy = "log-error";
+    }
+  }
+  const tags = /<([|\\/])(thought|action_input|action|observation|final_answer|system)\|>/gi;
+  let offset = 0;
+  for (const match of line.matchAll(tags)) {
+    emit(line.slice(offset, match.index));
+    const name = match[2].toLowerCase(), opening = match[1] === "|";
+    if (opening && !state.block) {
+      state.block = name; state.legacy = "";
+      emit(match[0]);
+    } else if (!opening && state.block === name) {
+      emit(match[0]); // The closing tag has the same color as its body.
+      state.block = ""; state.legacy = "";
+    } else {
+      // Tags quoted inside another block are literal content, not nested blocks.
+      emit(match[0]);
+    }
+    offset = match.index + match[0].length;
+  }
+  emit(line.slice(offset));
+  return {runs, state};
 }
+function advanceLogState(text, initial) {
+  let state = {...initial};
+  for (const line of text.match(/[^\n]*\n|[^\n]+$/g) || []) state = colorLogLine(line, state).state;
+  return state;
+}
+function safeLogCut(text, cut) {
+  // Don't cut through a delimiter when trimming a very long unbroken line.
+  const start = text.lastIndexOf("<", cut - 1);
+  if (start >= 0 && cut - start < 32) {
+    const tag = text.slice(start).match(/^<([|\\/])(thought|action_input|action|observation|final_answer|system)\|>/i);
+    if (tag && start + tag[0].length > cut) return start;
+    const tail = text.slice(start).toLowerCase();
+    if (Object.keys(LOG_COLORS).some(name =>
+      ["|", "\\", "/"].some(marker => (`<${marker}${name}|>`).startsWith(tail)))) return start;
+  }
+  return cut;
+}
+class LogHighlighter {
+  constructor(container, limit) {
+    this.container = container; this.limit = limit; this.reset();
+  }
+  reset(keepContext = false) {
+    let state = newLogState(), prefix = "";
+    if (keepContext) {
+      // Retain a small hidden suffix so a tag split at the clear button still
+      // completes correctly, without retaining the entire cleared log.
+      const cut = safeLogCut(this.partial, Math.max(0, this.partial.length - 64));
+      state = advanceLogState(this.partial.slice(0, cut), this.lineState);
+      prefix = this.partial.slice(cut);
+    }
+    this.headState = {...state}; this.headPrefix = prefix;
+    this.lineState = {...state}; this.partial = prefix; this.hidden = prefix.length;
+    this.partialNode = null; this.text = ""; this.trimmed = false;
+    this.container.replaceChildren();
+  }
+  append(text) {
+    this.text += text;
+    if (this.text.length > this.limit) {
+      let cut = this.text.length - this.limit;
+      const newline = this.text.indexOf("\n", cut);
+      if (newline >= 0 && newline - cut < this.limit / 2) cut = newline + 1;
+      cut = safeLogCut(this.text, cut);
+      // Advance over discarded text BEFORE rebuilding, so clipping away an
+      // opening tag does not remove the color of its remaining body.
+      this.headState = advanceLogState(this.headPrefix + this.text.slice(0, cut), this.headState);
+      this.headPrefix = ""; this.text = this.text.slice(cut);
+      this.lineState = {...this.headState}; this.partial = ""; this.hidden = 0;
+      this.partialNode = null; this.container.replaceChildren(); this.trimmed = true;
+      this.render(this.text);
+    } else {
+      this.render(text);
+    }
+  }
+  render(text) {
+    // Reparse only the unfinished last line. This handles streamed delimiters
+    // split at ANY character, without repeatedly rebuilding the whole log.
+    text = this.partial + text;
+    if (this.partialNode) this.partialNode.remove();
+    this.partialNode = null; this.partial = "";
+    const fragment = document.createDocumentFragment();
+    for (const line of text.match(/[^\n]*\n|[^\n]+$/g) || []) {
+      const {runs, state} = colorLogLine(line, this.lineState);
+      const node = document.createElement("span");
+      let skip = this.hidden;
+      for (const run of runs) {
+        if (skip >= run.text.length) { skip -= run.text.length; continue; }
+        const span = document.createElement("span");
+        span.className = run.color; span.textContent = run.text.slice(skip); skip = 0;
+        node.appendChild(span); // Never use innerHTML for model/tool output.
+      }
+      if (node.hasChildNodes()) fragment.appendChild(node);
+      if (line.endsWith("\n")) {
+        this.lineState = state; this.hidden = Math.max(0, this.hidden - line.length);
+      } else {
+        this.partial = line; this.partialNode = node.hasChildNodes() ? node : null;
+      }
+    }
+    this.container.appendChild(fragment);
+  }
+}
+// END LOG HIGHLIGHTER
+const logHighlighter = new LogHighlighter(out, MAX_DISPLAY);
 function flushOutput() {
   clearTimeout(paintTimer); paintTimer = null;
   if (!pendingOutput) return;
-  let text = pendingOutput; pendingOutput = "";
-  rawLog += text;
-  if (rawLog.length > MAX_DISPLAY) {
-    rawLog = rawLog.slice(-MAX_DISPLAY);
-    const newline = rawLog.indexOf("\n");
-    if (newline >= 0 && newline < MAX_DISPLAY / 2) rawLog = rawLog.slice(newline + 1);
-    text = rawLog; out.replaceChildren(); trimmed = true;
-  }
+  const text = pendingOutput; pendingOutput = "";
+  logHighlighter.append(text);
+  rawLog = logHighlighter.text; trimmed = logHighlighter.trimmed;
   $("empty").hidden = true; out.hidden = false;
-  renderLines(text);
   $("line-count").textContent = `${trimmed ? "最近 " : ""}${rawLog.split("\n").length}`;
   if ($("follow").checked) jumpToBottom();
   else $("jump").hidden = false;
@@ -373,7 +557,9 @@ function appendOutput(text) {
   pendingOutput += text;
   if (!paintTimer) paintTimer = setTimeout(flushOutput, 50);
 }
-function clearOutput() {
+function clearOutput(keepContext = false) {
+  if (keepContext) flushOutput();
+  logHighlighter.reset(keepContext);
   clearTimeout(paintTimer); paintTimer = null; pendingOutput = ""; rawLog = ""; trimmed = false;
   out.replaceChildren(); out.hidden = true; $("empty").hidden = false;
   $("line-count").textContent = "0"; $("jump").hidden = true;
@@ -467,6 +653,7 @@ form.addEventListener("submit", async event => {
     if (reader) { try { await reader.cancel(); } catch (_) {} reader.releaseLock(); }
     flushOutput(); clearInterval(timer); tick(); runId = null; setBusy(false);
     if (finished && !Array.from($("history-list").options).some(option => option.value === history)) $("history-list").appendChild(new Option(history, history));
+    if (!$("history-panel").hidden) refreshHistories();
   }
 });
 $("stop").addEventListener("click", async () => {
@@ -478,9 +665,15 @@ $("stop").addEventListener("click", async () => {
   } catch (error) { message(error.message, true); $("stop").disabled = !running || !runId; }
 });
 $("new-history").addEventListener("click", () => {
-  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "");
-  $("history").value = `web-${stamp}-${Math.random().toString(36).slice(2, 6)}`;
-  toast("已创建新会话名称；下次运行使用独立上下文。");
+  showTab("history");
+  $("history-create").open = true;
+  $("history-new-name").value = `web-${new Date().toISOString().replace(/[-:.TZ]/g, "")}`;
+  $("history-new-name").focus();
+});
+$("browse-history").addEventListener("click", () => {
+  const name = $("history").value.endsWith(".jsonl") ? $("history").value : $("history").value + ".jsonl";
+  showTab("history");
+  selectHistory(name);
 });
 $("input").addEventListener("input", () => { $("input-count").textContent = $("input").value.length.toLocaleString(); });
 $("input").addEventListener("keydown", event => {
@@ -508,7 +701,7 @@ $("collapse").addEventListener("click", () => {
   $("collapse").textContent = expanded ? "收起 ▴" : "展开 ▾";
   if (expanded && $("follow").checked) jumpToBottom();
 });
-$("clear").addEventListener("click", () => { clearOutput(); toast("仅清空当前显示，不删除磁盘上的 log。"); });
+$("clear").addEventListener("click", () => { clearOutput(running); toast("仅清空当前显示，不删除磁盘上的 log。"); });
 $("copy").addEventListener("click", async () => {
   flushOutput();
   if (!rawLog) { toast("还没有可复制的日志。"); return; }
@@ -546,6 +739,190 @@ window.addEventListener("beforeunload", event => {
 window.addEventListener("pagehide", () => {
   if (runId) navigator.sendBeacon("/stop", new URLSearchParams({id:runId, csrf_token:csrfToken}));
 });
+
+// BEGIN HISTORY UI
+let historyFiles = [], selectedHistory = null, previewData = null;
+let previewPages = [], previewOffset = 0, previewLoading = false;
+let listRequestId = 0, previewRequestId = 0;
+function historyStatus(id, text, error = false) {
+  $(id).textContent = text; $(id).classList.toggle("history-error", error);
+}
+function sizeLabel(size) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MiB`;
+}
+function showTab(name) {
+  for (const key of ["run", "history"]) {
+    const active = key === name;
+    $(`tab-${key}`).setAttribute("aria-selected", String(active));
+    $(`tab-${key}`).tabIndex = active ? 0 : -1;
+    $(`${key}-panel`).hidden = !active;
+  }
+  if (name === "history") refreshHistories();
+  else if ($("follow").checked) jumpToBottom();
+}
+for (const name of ["run", "history"]) {
+  $(`tab-${name}`).addEventListener("click", () => showTab(name));
+  $(`tab-${name}`).addEventListener("keydown", event => {
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const next = event.key === "Home" ? "run" : event.key === "End" ? "history" : name === "run" ? "history" : "run";
+      showTab(next); $(`tab-${next}`).focus();
+    }
+  });
+}
+function renderHistoryList() {
+  const query = $("history-search").value.toLocaleLowerCase();
+  const shown = historyFiles.filter(file => file.name.toLocaleLowerCase().includes(query));
+  $("history-total").textContent = `(${historyFiles.length})`;
+  const fragment = document.createDocumentFragment();
+  for (const file of shown) {
+    const button = document.createElement("button"); button.type = "button"; button.className = "history-file";
+    button.setAttribute("aria-pressed", String(file.name === selectedHistory));
+    const title = document.createElement("strong"); title.textContent = file.name;
+    const meta = document.createElement("small");
+    meta.textContent = `${sizeLabel(file.size)} · ${new Date(file.modified).toLocaleString()}${file.active ? " · 正在写入" : ""}`;
+    button.append(title, meta);
+    button.addEventListener("click", () => selectHistory(file.name));
+    fragment.appendChild(button);
+  }
+  $("history-files").replaceChildren(fragment);
+  historyStatus("history-list-status", historyFiles.length ? `${shown.length} / ${historyFiles.length} 个文件` : "还没有 JSONL 文件，可以在下方新建。");
+}
+async function refreshHistories() {
+  const requestId = ++listRequestId;
+  $("history-refresh").disabled = true;
+  historyStatus("history-list-status", "正在读取文件列表…");
+  try {
+    const response = await apiFetch("/api/histories", {cache:"no-store"});
+    if (!response.ok) throw new Error(await responseError(response));
+    const data = await response.json();
+    if (requestId !== listRequestId) return;
+    historyFiles = data.files; renderHistoryList();
+    $("history-list").replaceChildren();
+    for (const file of historyFiles) $("history-list").appendChild(new Option(file.name, file.name));
+  } catch (error) {
+    if (requestId === listRequestId) historyStatus("history-list-status", error.message, true);
+  } finally { if (requestId === listRequestId) $("history-refresh").disabled = false; }
+}
+function updateHistoryUse() {
+  $("history-use").disabled = running || previewLoading || !previewData;
+  $("history-use").title = running ? "任务运行期间不能切换会话，可继续浏览预览。" : "";
+}
+function updatePreviewControls() {
+  updateHistoryUse();
+  $("history-prev").disabled = previewLoading || !previewPages.length;
+  $("history-next").disabled = previewLoading || !previewData?.has_more;
+  $("history-preview-refresh").disabled = previewLoading || !selectedHistory;
+}
+function renderHistoryPreview() {
+  const container = $("history-preview");
+  container.replaceChildren();
+  if (!previewData) return;
+  if (!previewData.raw) {
+    const empty = document.createElement("p"); empty.textContent = "这是一个空会话文件。选择“用于下一次运行”后，Agent 会在其中追加记录。";
+    container.appendChild(empty); return;
+  }
+  if ($("history-view").value === "raw") {
+    const raw = document.createElement("pre"); raw.textContent = previewData.raw;
+    container.appendChild(raw); return;
+  }
+  for (const entry of previewData.entries) {
+    if (!entry.raw.trim()) continue;
+    const card = document.createElement("article"); card.className = "history-entry";
+    const head = document.createElement("div"); head.className = "history-entry-head";
+    const record = entry.record;
+    const isMessage = record && typeof record === "object" && typeof record.content === "string";
+    head.textContent = isMessage ? [record.role || "message", record.state, record.timestamp].filter(Boolean).join(" · ") : "JSONL 记录";
+    card.appendChild(head);
+    if (entry.error) {
+      const warning = document.createElement("p"); warning.className = "history-error"; warning.style.padding = "0 12px";
+      warning.textContent = entry.error; card.appendChild(warning);
+    }
+    const content = document.createElement("pre");
+    if (isMessage) new LogHighlighter(content, 2 * 1024 * 1024).append(record.content);
+    else content.textContent = entry.error ? entry.raw : JSON.stringify(record, null, 2);
+    card.appendChild(content);
+    if (isMessage) {
+      const details = document.createElement("details"), summary = document.createElement("summary"), raw = document.createElement("pre");
+      summary.textContent = "查看该条原始 JSON"; raw.textContent = entry.raw;
+      details.append(summary, raw); card.appendChild(details);
+    }
+    container.appendChild(card);
+  }
+}
+async function loadHistoryPreview(offset, pages) {
+  if (!selectedHistory) return;
+  const name = selectedHistory, requestId = ++previewRequestId;
+  previewLoading = true; updatePreviewControls();
+  historyStatus("history-preview-status", "正在读取预览…");
+  try {
+    const response = await apiFetch(`/api/histories/preview?${new URLSearchParams({name, offset})}`, {cache:"no-store"});
+    if (!response.ok) throw new Error(await responseError(response));
+    const data = await response.json();
+    if (requestId !== previewRequestId) return;
+    previewData = data; previewOffset = offset; previewPages = pages;
+    $("history-title").textContent = data.file.name;
+    $("history-page-info").textContent = `第 ${pages.length + 1} 页 · 字节 ${offset}–${data.next_offset} / ${data.file.size} · ${sizeLabel(data.file.size)}`;
+    renderHistoryPreview(); $("history-preview").scrollTop = 0;
+    historyStatus("history-preview-status", data.file.active ? "Agent 正在追加此文件，点击“重新读取”可查看更新。" : "只读预览，不会修改原有 history。");
+  } catch (error) {
+    if (requestId !== previewRequestId) return;
+    previewData = null; $("history-page-info").textContent = "预览未加载，请重新读取。";
+    $("history-preview").replaceChildren();
+    historyStatus("history-preview-status", error.message, true);
+  } finally {
+    if (requestId === previewRequestId) { previewLoading = false; updatePreviewControls(); }
+  }
+}
+function selectHistory(name) {
+  selectedHistory = name; previewData = null; previewPages = []; previewOffset = 0;
+  $("history-title").textContent = name; $("history-preview").replaceChildren();
+  renderHistoryList(); loadHistoryPreview(0, []);
+}
+$("history-search").addEventListener("input", renderHistoryList);
+$("history-refresh").addEventListener("click", refreshHistories);
+$("history-preview-refresh").addEventListener("click", () => loadHistoryPreview(0, []));
+$("history-view").addEventListener("change", renderHistoryPreview);
+$("history-next").addEventListener("click", () => {
+  if (previewData?.has_more && !previewLoading) loadHistoryPreview(previewData.next_offset, [...previewPages, previewOffset]);
+});
+$("history-prev").addEventListener("click", () => {
+  if (previewPages.length && !previewLoading) loadHistoryPreview(previewPages[previewPages.length - 1], previewPages.slice(0, -1));
+});
+$("history-use").addEventListener("click", () => {
+  if (running || !previewData) return;
+  $("history").value = previewData.file.name;
+  showTab("run"); toast(`已选择 ${previewData.file.name}，下一次运行将追加到该会话。`);
+});
+$("history-upload").addEventListener("change", async () => {
+  const file = $("history-upload").files[0]; if (!file) return;
+  try {
+    if (file.size > 1536 * 1024) throw new Error("导入文件请控制在 1.5 MiB 内；更大的已有文件可直接放入 temp 后刷新列表。");
+    $("history-new-content").value = await file.text();
+    $("history-new-name").value = file.name;
+    historyStatus("history-create-status", "已读取本地文件，点击“创建文件”后保存。");
+  } catch (error) { historyStatus("history-create-status", error.message, true); }
+});
+$("create-history-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const body = new FormData(event.currentTarget);
+  $("history-create-submit").disabled = true;
+  historyStatus("history-create-status", "正在创建…");
+  try {
+    const response = await apiFetch("/api/histories", {method:"POST", body});
+    if (!response.ok) throw new Error(await responseError(response));
+    const data = await response.json();
+    $("create-history-form").reset();
+    historyStatus("history-create-status", `已创建 ${data.file.name}，原有文件未改动。`);
+    $("history-search").value = "";
+    await refreshHistories(); selectHistory(data.file.name);
+  } catch (error) { historyStatus("history-create-status", error.message, true); }
+  finally { $("history-create-submit").disabled = false; }
+});
+// END HISTORY UI
+
 if (["compact", "standard", "large"].includes(preferences.size)) $("log-size").value = preferences.size;
 if (typeof preferences.wrap === "boolean") $("wrap").checked = preferences.wrap;
 if (typeof preferences.follow === "boolean") $("follow").checked = preferences.follow;
@@ -901,19 +1278,211 @@ def index():
     return render_template_string(PAGE, csrf_token=csrf_token(), username=app.config["AUTH_USERNAME"])
 
 
+def history_filename(name, add_suffix=False):
+    """Accept a single filename, never a path; Unicode filenames are supported."""
+    if not isinstance(name, str) or not name or name in {".", ".."}:
+        raise ValueError("请输入 JSONL 文件名")
+    if any(char in name for char in ("/", "\\", ":")) or any(
+        ord(char) < 32 or ord(char) == 127 for char in name
+    ):
+        raise ValueError("文件名不能包含路径分隔符或控制字符")
+    if add_suffix and not name.endswith(".jsonl"):
+        name += ".jsonl"
+    try:
+        encoded_name = name.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError("文件名包含无效 Unicode 字符")
+    if not name.endswith(".jsonl") or len(encoded_name) > 255:
+        raise ValueError("文件名必须以 .jsonl 结尾，且 UTF-8 长度不超过 255 字节")
+    return name
+
+
+def history_path(name):
+    path = TEMP_DIR / history_filename(name)
+    if path.is_symlink():
+        raise ValueError("不允许访问符号链接")
+    if path.exists() and not path.is_file():
+        raise ValueError("该名称不是普通文件")
+    return path
+
+
+def history_info(path, info=None):
+    info = info or path.stat(follow_symlinks=False)
+    with STATE_LOCK:
+        current = ACTIVE_RUN
+        active = current is not None and (
+            current.history if current.history.endswith(".jsonl") else current.history + ".jsonl"
+        ) == path.name
+    return {
+        "name": path.name, "size": info.st_size,
+        "modified": datetime.fromtimestamp(info.st_mtime).astimezone().isoformat(timespec="seconds"),
+        "active": active,
+    }
+
+
+def list_history_files():
+    if not TEMP_DIR.exists():
+        return []
+    files = []
+    for path in TEMP_DIR.iterdir():
+        if not path.name.endswith(".jsonl"):
+            continue
+        try:
+            info = path.stat(follow_symlinks=False)
+            if stat.S_ISREG(info.st_mode):
+                files.append(history_info(path, info))
+        except FileNotFoundError:
+            continue  # A file was removed during directory refresh.
+    return sorted(files, key=lambda item: (item["modified"], item["name"]), reverse=True)
+
+
+def strict_json_loads(text):
+    def invalid_constant(_value):
+        raise ValueError("非标准 JSON 常量")
+    return json.loads(text, parse_constant=invalid_constant)
+
+
+@app.get("/api/histories")
+def histories():
+    try:
+        return jsonify(files=list_history_files(), directory="temp")
+    except OSError:
+        app.logger.exception("Could not list histories")
+        return jsonify(error="无法读取 temp 目录，请检查文件权限"), 500
+
+
+@app.post("/api/histories")
+def create_history():
+    data = request.get_json(silent=True) if request.is_json else request.form
+    if not isinstance(data, dict) and request.is_json:
+        return jsonify(error="请提交文件名和可选的 JSONL 内容"), 400
+    data = data or {}
+    try:
+        name = history_filename(data.get("name", "").strip(), add_suffix=True)
+        content = data.get("content", "")
+        if not isinstance(content, str):
+            raise ValueError("JSONL 内容必须是文本")
+        records = []
+        for line_number, line in enumerate(content.lstrip("\ufeff").splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                record = strict_json_loads(line)
+            except (ValueError, RecursionError):
+                raise ValueError(f"第 {line_number} 行不是有效 JSON")
+            if (not isinstance(record, dict) or record.get("role") not in {"user", "assistant"}
+                    or not isinstance(record.get("content"), str)):
+                raise ValueError(f"第 {line_number} 行需包含 role（user / assistant）和字符串 content")
+            records.append(json.dumps(record, ensure_ascii=False))
+        content = "".join(line + "\n" for line in records)
+        try:
+            content.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError("JSONL 内容包含无效 Unicode 字符")
+        TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        path = history_path(name)
+        # Exclusive creation: never overwrite an existing history, even in races.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as file:
+                file.write(content)
+                file.flush()
+                os.fsync(file.fileno())
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+        return jsonify(file=history_info(path)), 201
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except AttributeError:
+        return jsonify(error="请输入有效的文件名"), 400
+    except FileExistsError:
+        return jsonify(error="同名文件已存在，请更换名称；不会覆盖原有记录"), 409
+    except OSError:
+        app.logger.exception("Could not create history")
+        return jsonify(error="创建失败，请检查 temp 目录权限和磁盘空间"), 500
+
+
+@app.get("/api/histories/preview")
+def preview_history():
+    try:
+        name = history_filename(request.args.get("name", ""))
+        offset = int(request.args.get("offset", "0"))
+        if offset < 0:
+            raise ValueError("预览偏移量不能小于 0")
+        path = history_path(name)
+        # NOFOLLOW closes the symlink race; NONBLOCK avoids hanging on a FIFO.
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(fd, "rb") as file:
+            info = os.fstat(file.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError("只能预览普通 JSONL 文件")
+            size = info.st_size  # Read a bounded snapshot; the agent may append.
+            if offset > size:
+                raise ValueError("文件已变短，请刷新预览")
+            partial_start = False
+            if offset:
+                file.seek(offset - 1)
+                partial_start = file.read(1) != b"\n"
+            file.seek(offset)
+            entries, raw_parts = [], []
+            for _ in range(HISTORY_PREVIEW_LINES):
+                remaining = min(HISTORY_PREVIEW_BYTES - (file.tell() - offset), size - file.tell())
+                if remaining <= 0:
+                    break
+                chunk = file.readline(remaining)
+                if not chunk:
+                    break
+                # Keep page boundaries on UTF-8 character boundaries.
+                if file.tell() < size:
+                    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                    decoder.decode(chunk, final=False)
+                    pending, _ = decoder.getstate()
+                    if pending:
+                        chunk = chunk[:-len(pending)]
+                        file.seek(-len(pending), os.SEEK_CUR)
+                    if not chunk:
+                        break
+                raw = chunk.decode("utf-8", errors="replace")
+                partial_end = not chunk.endswith(b"\n") and file.tell() < size
+                partial = partial_start or partial_end
+                record, error = None, None
+                if partial:
+                    error = "超长记录分段展示，可切换原始 JSONL 并继续翻页"
+                elif raw.strip():
+                    try:
+                        record = strict_json_loads(raw)
+                    except (ValueError, RecursionError):
+                        error = "此行不是有效 JSON（运行中的末行可能尚未写完）"
+                entries.append({"raw": raw, "record": record, "error": error, "partial": partial})
+                raw_parts.append(raw)
+                partial_start = partial_end
+                if partial_end:
+                    break
+            return jsonify(
+                file=history_info(path, info), entries=entries, raw="".join(raw_parts),
+                offset=offset, next_offset=file.tell(), has_more=file.tell() < size,
+            )
+    except FileNotFoundError:
+        return jsonify(error="文件不存在，可能已被移动或删除，请刷新列表"), 404
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except OSError:
+        app.logger.exception("Could not preview history")
+        return jsonify(error="无法预览文件，请检查权限或刷新列表"), 400
+
+
 @app.get("/api/config")
 def configuration():
     names = model_names()
     effort = os.environ.get("REASONING_EFFORT", "auto").strip().lower()
     if effort == "ultra-high":
         effort = "xhigh"
-    histories = []
-    if TEMP_DIR.is_dir():
-        try:
-            paths = sorted(TEMP_DIR.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
-            histories = [p.stem for p in paths if HISTORY_NAME.fullmatch(p.stem)][:40]
-        except OSError:
-            app.logger.warning("Could not list history files", exc_info=True)
+    try:
+        histories = [item["name"] for item in list_history_files()]
+    except OSError:
+        histories = []
+        app.logger.warning("Could not list history files", exc_info=True)
     return jsonify(
         models=names, default_model=names[0] if names else "",
         efforts=EFFORT_LEVELS, default_effort=effort if effort in EFFORT_LEVELS else "auto",
@@ -926,15 +1495,17 @@ def configuration():
 def run():
     global ACTIVE_RUN
     text = request.form.get("input", "")
-    history = request.form.get("history", "new").strip() or "new"
+    history = request.form.get("history", "new") or "new"
     model = request.form.get("model", os.environ.get("MODEL_NAME", "")).strip()
     effort = request.form.get("effort", os.environ.get("REASONING_EFFORT", "auto")).strip().lower()
     if effort == "ultra-high":
         effort = "xhigh"
     if not text.strip():
         return jsonify(error="请输入非空的任务指令"), 400
-    if not HISTORY_NAME.fullmatch(history) or history in {".", ".."}:
-        return jsonify(error="history 只能包含 1–64 位字母、数字、点、下划线和短横线，不能是 . 或 .."), 400
+    try:
+        history_path(history_filename(history, add_suffix=True))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
     if not model or len(model) > 200 or any(ord(char) < 32 or ord(char) == 127 for char in model):
         return jsonify(error="请输入有效模型名称（1–200 字符，不含控制字符）"), 400
     if effort not in EFFORT_LEVELS:
