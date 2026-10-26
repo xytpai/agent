@@ -1323,6 +1323,44 @@ class HistoryCheckpoint:
             self.validated = self.published = cursor
             self.line_number = line_number
 
+    def discard_committed_work_copy(self):
+        """Remove only an exact, fully published duplicate after successful exit.
+
+        Call only after all history writers stopped/joined, while holding
+        RUN_LOCK. Retaining a copy is safer than deleting uncertain data.
+        """
+        if self.pending_bytes or self.published != self.validated:
+            raise ValueError("History 尚未完整提交，保留工作副本")
+        self.check_target()
+        if self.version is None:
+            raise ValueError("正式 history 不存在，保留工作副本")
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        with os.fdopen(os.open(self.work_path, flags), "rb") as work:
+            work_info = os.fstat(work.fileno())
+            if not stat.S_ISREG(work_info.st_mode) or work_info.st_size != self.published:
+                raise ValueError("History 工作副本不是完整提交的普通文件，保留副本")
+            with os.fdopen(os.open(self.path, flags), "rb") as published:
+                published_info = os.fstat(published.fileno())
+                if (not stat.S_ISREG(published_info.st_mode)
+                        or published_info.st_size != self.published):
+                    raise ValueError("正式 history 大小不匹配，保留工作副本")
+                # Bound memory use. Check actual bytes, not just lengths.
+                while True:
+                    chunk = work.read(1024 * 1024)
+                    if published.read(len(chunk)) != chunk:
+                        raise ValueError("正式 history 与工作副本内容不同，保留副本")
+                    if not chunk:
+                        break
+                if (history_version(os.fstat(work.fileno())) != history_version(work_info)
+                        or history_version(os.fstat(published.fileno())) != history_version(published_info)):
+                    raise ValueError("History 在核对期间变化，保留工作副本")
+        self.check_target()
+        if history_version(self.work_path.lstat()) != history_version(work_info):
+            raise ValueError("History 工作副本已被替换，保留副本")
+        # Only this run's copy, never metadata/events/formal history.
+        # No startup sweep: old/interrupted copies remain for diagnosis.
+        self.work_path.unlink()
+
 
 class AgentRun:
     """A background subprocess whose lifetime is independent of HTTP readers."""
@@ -1495,15 +1533,33 @@ class AgentRun:
                 os.fsync(self.log_file.fileno())
             except OSError as exc:
                 error = error or f"日志落盘失败：{exc}"
-            self.metadata.update(
-                status="failed" if error else "stopped" if self.stopped else "completed" if code == 0 else "failed",
-                code=code, error=error,
-                elapsed=round(time.monotonic() - self.started, 3),
-            )
             try:
-                self.save_metadata()
-            except OSError:
-                app.logger.exception("Could not save run completion")
+                # Serialize Stop/Logout with the success decision and cleanup.
+                # RUN_LOCK remains held until close(): a next run or UI deletion
+                # cannot change the formal history during this comparison.
+                with self.lock:
+                    self.metadata.update(
+                        status="failed" if error else "stopped" if self.stopped else "completed" if code == 0 else "failed",
+                        code=code, error=error,
+                        elapsed=round(time.monotonic() - self.started, 3),
+                    )
+                    try:
+                        self.save_metadata()
+                    except OSError:
+                        # Keep the working copy if completion is not durable.
+                        app.logger.exception("Could not save run completion")
+                    else:
+                        if (self.metadata["status"] == "completed"
+                                and self.checkpoint_error is None
+                                and self.checkpoint.pending_bytes == 0):
+                            try:
+                                self.checkpoint.discard_committed_work_copy()
+                            except (OSError, ValueError):
+                                # Reclaiming space is optional, not task success.
+                                app.logger.warning(
+                                    "Could not safely clean history work copy for run %s; "
+                                    "leaving it for inspection", self.id, exc_info=True,
+                                )
             finally:
                 self.close()
             try:
