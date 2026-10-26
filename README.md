@@ -24,5 +24,9 @@ python core/agent.py --input=input.txt --history=new 2>&1 | tee log
 ```bash
 export AGENT_WEB_USERNAME="your-username"
 export AGENT_WEB_PASSWORD="your-password"
-python server.py
+python server.py \
+  --host 127.0.0.1 \
+  --port 5500 \
+  --ssl-cert "$SERVER_PREFIX/.local/state/agent-certificates/config/live/www.xytpai.top/fullchain.pem" \
+  --ssl-key "$SERVER_PREFIX/.local/state/agent-certificates/config/live/www.xytpai.top/privkey.pem"
 ```
