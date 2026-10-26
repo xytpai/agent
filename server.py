@@ -12,6 +12,7 @@ import argparse
 import atexit
 import codecs
 import json
+import hashlib
 import hmac
 import math
 import secrets
@@ -338,7 +339,7 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
         </details>
       </section>
       <section class="panel" aria-label="History 预览">
-        <div class="panel-head console-top"><span class="panel-title" id="history-title">选择一个 JSONL 文件</span><button type="button" class="btn small" id="history-use" disabled>恢复此会话 →</button></div>
+        <div class="panel-head console-top"><span class="panel-title" id="history-title">选择一个 JSONL 文件</span><div class="tools"><button type="button" class="btn small" id="history-use" disabled>恢复此会话 →</button><button type="button" class="btn small danger" id="history-delete" disabled>删除文件…</button></div></div>
         <div class="toolbar">
           <div class="tools"><label for="history-view">预览方式 <select id="history-view"><option value="readable">会话内容</option><option value="raw">原始 JSONL</option></select></label></div>
           <button type="button" class="btn small" id="history-preview-refresh" disabled>重新读取</button>
@@ -346,6 +347,7 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
         <div id="history-preview" class="history-preview" tabindex="0"><p>在左侧选择文件，查看消息、工具输出及原始 JSONL。</p></div>
         <div class="console-footer"><span id="history-page-info">每页最多 50 行 / 256 KiB，不修改原文件。</span><div class="tools"><button type="button" class="btn small" id="history-prev" disabled>上一页</button><button type="button" class="btn small" id="history-next" disabled>下一页</button></div></div>
         <div id="history-preview-status" class="history-status" role="status"></div>
+        <p class="help" style="padding:0 18px 14px">删除需输入完整文件名确认；任务运行期间不可删除。仅删除 temp 下的正式 history，任务日志和 web-runs 副本仍保留，不是完整隐私清理。</p>
       </section>
     </div>
   </section>
@@ -848,7 +850,7 @@ window.addEventListener("pagehide", cancelStream);
 // BEGIN HISTORY UI
 let historyFiles = [], selectedHistory = null, previewData = null;
 let previewPages = [], previewOffset = 0, previewLoading = false;
-let listRequestId = 0, previewRequestId = 0;
+let listRequestId = 0, previewRequestId = 0, historyDeleting = false;
 function historyStatus(id, text, error = false) {
   $(id).textContent = text; $(id).classList.toggle("history-error", error);
 }
@@ -904,7 +906,11 @@ async function refreshHistories() {
     if (!response.ok) throw new Error(await responseError(response));
     const data = await response.json();
     if (requestId !== listRequestId) return;
-    historyFiles = data.files; renderHistoryList();
+    historyFiles = data.files;
+    if (selectedHistory && !historyFiles.some(file => file.name === selectedHistory)) {
+      clearHistorySelection("所选文件已不存在，请选择其他会话。");
+    }
+    renderHistoryList(); updatePreviewControls();
     $("history-list").replaceChildren();
     for (const file of historyFiles) $("history-list").appendChild(new Option(file.name, file.name));
   } catch (error) {
@@ -912,8 +918,13 @@ async function refreshHistories() {
   } finally { if (requestId === listRequestId) $("history-refresh").disabled = false; }
 }
 function updateHistoryUse() {
-  $("history-use").disabled = running || previewLoading || !previewData;
+  $("history-use").disabled = running || historyDeleting || previewLoading || !previewData;
   $("history-use").title = running ? "任务运行期间不能切换会话，可继续浏览预览。" : "";
+  const active = previewData?.file.active || historyFiles.some(file => file.name === selectedHistory && file.active);
+  $("history-delete").disabled = running || historyDeleting || previewLoading || !previewData ||
+    previewData.file.name !== selectedHistory || !previewData.file.version || active;
+  $("history-delete").title = running || active ? "请等待后台任务结束并刷新列表后再删除。" :
+    "仅删除正式 history，需输入完整文件名确认；日志和任务工作副本保留。";
 }
 function updatePreviewControls() {
   updateHistoryUse();
@@ -986,6 +997,54 @@ function selectHistory(name) {
   $("history-title").textContent = name; $("history-preview").replaceChildren();
   renderHistoryList(); loadHistoryPreview(0, []);
 }
+function clearHistorySelection(status = "") {
+  ++previewRequestId; // Ignore any in-flight preview for the deleted file.
+  selectedHistory = null; previewData = null; previewPages = []; previewOffset = 0; previewLoading = false;
+  $("history-title").textContent = "选择一个 JSONL 文件";
+  $("history-page-info").textContent = "每页最多 50 行 / 256 KiB，不修改原文件。";
+  const hint = document.createElement("p"); hint.textContent = "在左侧选择文件，查看消息、工具输出及原始 JSONL。";
+  $("history-preview").replaceChildren(hint);
+  historyStatus("history-preview-status", status);
+  updatePreviewControls();
+}
+async function deleteSelectedHistory() {
+  if (running || historyDeleting || previewLoading || !previewData ||
+      previewData.file.name !== selectedHistory || previewData.file.active) return;
+  const {name, version} = previewData.file;
+  if (!version) return;
+  const confirmation = window.prompt(
+    `确认永久删除正式历史文件？\n\ntemp/${name}\n\n` +
+    "删除后不能直接从此文件恢复会话，本界面没有撤销功能。\n" +
+    "仅删除该文件；temp/web-runs 中的任务记录、历史工作副本及 log 仍保留，不是完整隐私清理。\n\n" +
+    `如需删除，请输入完整文件名（含 .jsonl）：\n${name}`, ""
+  );
+  if (confirmation === null) return;
+  if (confirmation !== name) { toast("文件名不一致，已取消删除；文件未改动。"); return; }
+  historyDeleting = true; updatePreviewControls();
+  historyStatus("history-preview-status", `正在删除 temp/${name}…`);
+  try {
+    const response = await apiFetch("/api/histories/delete", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({name, confirm_name:confirmation, version})
+    });
+    if (!response.ok) throw new Error(await responseError(response));
+    const data = await response.json();
+    if (selectedHistory === name) clearHistorySelection(`已删除 ${name}；任务日志和工作副本仍保留。`);
+    const configured = $("history").value;
+    if (!running && (configured.endsWith(".jsonl") ? configured : configured + ".jsonl") === name) {
+      $("history").value = "";
+      message("所选 history 已删除，请选择或新建会话后再运行。");
+    }
+    toast(data.warning || `已删除 ${name}；仅删除正式 history。`);
+    await refreshHistories();
+  } catch (error) {
+    await refreshHistories(); // Never automatically retry a destructive request.
+    historyStatus("history-preview-status", `${error.message} 请核对文件列表，重新读取预览后再操作。`, true);
+  } finally {
+    historyDeleting = false; updatePreviewControls();
+  }
+}
+$("history-delete").addEventListener("click", deleteSelectedHistory);
 $("history-search").addEventListener("input", renderHistoryList);
 $("history-refresh").addEventListener("click", refreshHistories);
 $("history-preview-refresh").addEventListener("click", () => loadHistoryPreview(0, []));
@@ -997,7 +1056,7 @@ $("history-prev").addEventListener("click", () => {
   if (previewPages.length && !previewLoading) loadHistoryPreview(previewPages[previewPages.length - 1], previewPages.slice(0, -1));
 });
 $("history-use").addEventListener("click", async () => {
-  if (running || !previewData) return;
+  if (running || historyDeleting || !previewData) return;
   const name = previewData.file.name;
   cancelStream(); setBusy(true);
   try {
@@ -1715,6 +1774,14 @@ def history_path(name):
     return path
 
 
+def history_version(info):
+    """Opaque optimistic-concurrency token; not an authentication credential."""
+    identity = (
+        info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+    )
+    return hashlib.sha256(repr(identity).encode("ascii")).hexdigest()
+
+
 def history_info(path, info=None):
     info = info or path.stat(follow_symlinks=False)
     with STATE_LOCK:
@@ -1725,7 +1792,7 @@ def history_info(path, info=None):
     return {
         "name": path.name, "size": info.st_size,
         "modified": datetime.fromtimestamp(info.st_mtime).astimezone().isoformat(timespec="seconds"),
-        "active": active,
+        "active": active, "version": history_version(info),
     }
 
 
@@ -1810,6 +1877,67 @@ def create_history():
     except OSError:
         app.logger.exception("Could not create history")
         return jsonify(error="创建失败，请检查 temp 目录权限和磁盘空间"), 500
+
+
+@app.post("/api/histories/delete")
+def delete_history():
+    """Delete one explicitly confirmed formal history, never logs/run snapshots."""
+    data = request.get_json(silent=True) if request.is_json else request.form
+    if not isinstance(data, dict) and request.is_json:
+        return jsonify(error="请提交文件名、确认文件名和预览版本"), 400
+    data = data or {}
+    try:
+        name = history_filename(data.get("name", ""))  # Exact name; no trimming/suffix guessing.
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    if data.get("confirm_name") != name:
+        return jsonify(error="删除未确认：请输入完整且一致的文件名（含 .jsonl）"), 400
+    version = data.get("version")
+    if not isinstance(version, str) or not re.fullmatch(r"[0-9a-f]{64}", version):
+        return jsonify(error="缺少有效的预览版本，请重新读取文件后确认删除"), 400
+
+    # Share startup/cleanup's lock, including windows before ACTIVE_RUN is set
+    # and after Stop while the final history checkpoint is still being published.
+    if not RUN_LOCK.acquire(blocking=False):
+        return jsonify(error="后台任务正在启动、运行或收尾，暂不可删除 history；请等待结束后重试"), 409
+    directory_fd = None
+    try:
+        # Anchor operations to an opened directory on POSIX; do not follow a
+        # substituted TEMP_DIR symlink. Only unlink a direct regular-file entry.
+        if os.name == "posix":
+            directory_fd = os.open(
+                TEMP_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            )
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        else:
+            info = (TEMP_DIR / name).lstat()
+        if not stat.S_ISREG(info.st_mode):
+            return jsonify(error="仅允许删除 temp 目录直属的普通 JSONL 文件，不允许符号链接或目录"), 400
+        if not hmac.compare_digest(history_version(info), version):
+            return jsonify(error="文件在预览后已发生变化，未删除；请重新读取并确认"), 409
+        if directory_fd is not None:
+            os.unlink(name, dir_fd=directory_fd)
+        else:
+            (TEMP_DIR / name).unlink()
+        warning = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            except OSError:
+                app.logger.warning("Deleted history but directory sync failed", exc_info=True)
+                warning = "文件已删除，但目录落盘确认失败；任务日志和工作副本仍保留。"
+        return jsonify(ok=True, deleted=name, warning=warning)
+    except FileNotFoundError:
+        return jsonify(error="文件不存在或已被删除，请刷新列表"), 404
+    except OSError:
+        app.logger.exception("Could not delete formal history")
+        return jsonify(error="删除失败，请检查目录权限并刷新列表确认文件状态"), 500
+    finally:
+        try:
+            if directory_fd is not None:
+                os.close(directory_fd)
+        finally:
+            RUN_LOCK.release()
 
 
 @app.get("/api/histories/preview")
