@@ -176,6 +176,13 @@ input[type=checkbox] { accent-color:var(--accent); }
 .log-viewport::-webkit-scrollbar-thumb { background:#344a64; border-radius:9px; }
 #out { margin:0; font:12.5px/1.85 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color:#c9d8ec; white-space:pre-wrap; overflow-wrap:anywhere; tab-size:4; }
 #out.nowrap { white-space:pre; overflow-wrap:normal; }
+#out .log-fold { margin:6px 0; border:1px solid #2a3851; border-radius:8px; background:#101a29; white-space:normal; }
+#out .log-fold > summary { cursor:pointer; padding:7px 10px; overflow-wrap:anywhere; white-space:normal; }
+#out .log-fold > summary::after { content:" · 点击展开"; color:var(--muted); font-size:11px; }
+#out .log-fold[open] > summary::after { content:" · 点击收起"; }
+#out .log-fold > summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
+#out .log-fold-body { margin:0; padding:10px 12px; border-top:1px solid #2a3851; font:inherit; color:inherit; white-space:pre-wrap; overflow-wrap:anywhere; }
+#out.nowrap .log-fold-body { white-space:pre; overflow-wrap:normal; }
 .log-system { color:#82aaff; }
 .log-think { color:#c7a5ff; }
 .log-action { color:#f1c878; }
@@ -246,7 +253,7 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
   </nav>
   <main id="run-panel" class="workspace" role="tabpanel" aria-labelledby="tab-run">
     <section class="panel" aria-label="运行配置">
-      <div class="panel-head"><span class="panel-title"><span class="panel-index">01</span>任务配置</span><span class="eyebrow">CONFIGURE</span></div>
+      <div class="panel-head"><span class="panel-title">任务配置</span><span class="eyebrow">CONFIGURE</span></div>
       <form id="form" class="form-body">
         <div class="field">
           <label for="model">模型 / Model</label>
@@ -305,7 +312,7 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
           <div class="log-shell">
             <div id="viewport" class="log-viewport" tabindex="0" aria-label="日志内容，可滚动查看">
               <div id="empty" class="empty"><div class="empty-icon" aria-hidden="true">/_</div><strong>准备好，开始下一次探索。</strong><p>运行后，模型思考、工具调用和执行结果会实时出现在这里。日志面板保持固定高度，不会把页面撑长。</p></div>
-              <pre id="out" hidden></pre>
+              <div id="out" hidden></div>
             </div>
             <button type="button" class="btn small jump" id="jump" hidden>↓ 回到最新日志</button>
           </div>
@@ -313,6 +320,7 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
         <div class="console-footer"><span id="run-meta">尚未开始 · 输出同步保存至 ./log</span><span><span id="elapsed">00:00</span> &nbsp; / &nbsp; <span id="line-count">0</span> 行</span></div>
       </div>
       <div class="legend" aria-hidden="true"><span class="log-system">SYSTEM</span><span class="log-think">THINK</span><span class="log-action">ACTION</span><span class="log-observation">OBSERVATION</span><span class="log-final">FINAL</span></div>
+      <p class="help">主日志的 ACTION INPUT / OBSERVATION 默认折叠，点击标题展开；复制包含折叠内容，下载仍保留原始日志。</p>
     </section>
   </main>
 
@@ -421,18 +429,23 @@ const LOG_COLORS = {
   observation:"log-observation", final_answer:"log-final", system:"log-system",
 };
 function newLogState() {
-  return {block:"", legacy:"", fence:"", fenceLength:0, lineStart:true};
+  return {block:"", blockStart:null, legacy:"", legacyBlock:"", legacyStart:null,
+    fence:"", fenceLength:0, lineStart:true, position:0};
 }
 function logColor(state) { return LOG_COLORS[state.block] || state.legacy; }
 function colorLogLine(line, initial) {
   const state = {...initial}, runs = [];
-  const atStart = state.lineStart;
+  const atStart = state.lineStart, position = state.position;
+  state.position += line.length;
   state.lineStart = line.endsWith("\n");
   function emit(text, color = logColor(state)) {
     if (!text) return;
+    const kind = state.block || state.legacyBlock;
+    const fold = kind === "action_input" || kind === "observation" ? kind : "";
+    const foldId = fold ? `${state.block ? "tag" : "legacy"}:${fold}:${state.block ? state.blockStart : state.legacyStart}` : "";
     const last = runs[runs.length - 1];
-    if (last && last.color === color) last.text += text;
-    else runs.push({text, color});
+    if (last && last.color === color && last.foldId === foldId) last.text += text;
+    else runs.push({text, color, fold, foldId});
   }
   // Fenced code belongs to its enclosing block, even when it quotes ReAct tags.
   if (state.fence) {
@@ -453,11 +466,14 @@ function colorLogLine(line, initial) {
   if (!state.block && atStart) {
     const heading = line.match(/^[ \t]*(Think|Action[ \t_]+Input|Action|Observation|Final[ \t_]+Answer|System)[ \t]*:/i);
     if (heading) {
-      state.legacy = LOG_COLORS[heading[1].toLowerCase().replace(/[ \t]+/g, "_")];
+      state.legacyBlock = heading[1].toLowerCase().replace(/[ \t]+/g, "_");
+      state.legacyStart = position;
+      state.legacy = LOG_COLORS[state.legacyBlock];
     } else if (/^[ \t]*(?:==== SYSTEM ====|history_context_usage:)/i.test(line)) {
-      state.legacy = "log-system";
-    } else if (/^[ \t]*(?:Traceback\b|(?:[\w.]*Error|Exception):)/.test(line)) {
-      state.legacy = "log-error";
+      state.legacy = "log-system"; state.legacyBlock = ""; state.legacyStart = null;
+    } else if (!["action_input", "observation"].includes(state.legacyBlock) &&
+               /^[ \t]*(?:Traceback\b|(?:[\w.]*Error|Exception):)/.test(line)) {
+      state.legacy = "log-error"; state.legacyBlock = ""; state.legacyStart = null;
     }
   }
   const tags = /<([|\\/])(think|action_input|action|observation|final_answer|system)\|>/gi;
@@ -466,11 +482,13 @@ function colorLogLine(line, initial) {
     emit(line.slice(offset, match.index));
     const name = match[2].toLowerCase(), opening = match[1] === "|";
     if (opening && !state.block) {
-      state.block = name; state.legacy = "";
+      state.block = name; state.blockStart = position + match.index;
+      state.legacy = ""; state.legacyBlock = ""; state.legacyStart = null;
       emit(match[0]);
     } else if (!opening && state.block === name) {
       emit(match[0]); // The closing tag has the same color as its body.
-      state.block = ""; state.legacy = "";
+      state.block = ""; state.blockStart = null;
+      state.legacy = ""; state.legacyBlock = ""; state.legacyStart = null;
     } else {
       // Tags quoted inside another block are literal content, not nested blocks.
       emit(match[0]);
@@ -512,7 +530,11 @@ class LogHighlighter {
     }
     this.headState = {...state}; this.headPrefix = prefix;
     this.lineState = {...state}; this.partial = prefix; this.hidden = prefix.length;
-    this.partialNode = null; this.text = ""; this.trimmed = false;
+    this.text = ""; this.trimmed = false;
+    this.clearNodes();
+  }
+  clearNodes() {
+    this.partialNode = null;
     this.container.replaceChildren();
   }
   append(text) {
@@ -527,7 +549,7 @@ class LogHighlighter {
       this.headState = advanceLogState(this.headPrefix + this.text.slice(0, cut), this.headState);
       this.headPrefix = ""; this.text = this.text.slice(cut);
       this.lineState = {...this.headState}; this.partial = ""; this.hidden = 0;
-      this.partialNode = null; this.container.replaceChildren(); this.trimmed = true;
+      this.clearNodes(true); this.trimmed = true;
       this.render(this.text);
     } else {
       this.render(text);
@@ -560,8 +582,114 @@ class LogHighlighter {
     this.container.appendChild(fragment);
   }
 }
+
+// Only the main log uses folding; History previews keep the plain highlighter.
+class FoldedLogHighlighter extends LogHighlighter {
+  clearNodes(preserveOpen = false) {
+    // Stable IDs use absolute character positions, including trimmed/hidden text.
+    // Retain user choices for surviving blocks when the bounded log is rebuilt.
+    this.savedOpen = preserveOpen && this.folds ?
+      new Map([...this.folds].map(([id, fold]) => [id, fold.node.open])) : new Map();
+    this.folds = new Map(); this.partialPieces = []; this.partialNode = null;
+    this.container.replaceChildren();
+  }
+  markSpacing(node, dirty) {
+    if (!node || node.parentNode !== this.container) return;
+    dirty.add(node);
+    if (node.previousElementSibling) dirty.add(node.previousElementSibling);
+    if (node.nextElementSibling) dirty.add(node.nextElementSibling);
+  }
+  compactFoldSpacing(dirty) {
+    // A <details> already introduces a block break. Hide only uncolored,
+    // whitespace-only spans immediately beside it, not code or body whitespace.
+    // Keep nodes/text intact so copying and the raw log remain lossless.
+    const seen = new Set();
+    const isGap = node => node && node.parentNode === this.container && node.dataset.logGap === "true";
+    for (const seed of dirty) {
+      if (seed.parentNode !== this.container) continue;
+      for (const candidate of [seed, seed.previousElementSibling, seed.nextElementSibling]) {
+        if (!isGap(candidate) || seen.has(candidate)) continue;
+        let first = candidate, last = candidate;
+        while (isGap(first.previousElementSibling)) first = first.previousElementSibling;
+        const gaps = [];
+        for (let node = first; isGap(node); node = node.nextElementSibling) {
+          gaps.push(node); seen.add(node); last = node;
+        }
+        const hide = first.previousElementSibling?.tagName === "DETAILS" ||
+          last.nextElementSibling?.tagName === "DETAILS";
+        for (const node of gaps) node.hidden = hide;
+      }
+    }
+  }
+  foldFor(run, dirty) {
+    let fold = this.folds.get(run.foldId);
+    if (!fold) {
+      const node = document.createElement("details");
+      node.className = `log-fold ${LOG_COLORS[run.fold]}`;
+      node.dataset.kind = run.fold;
+      node.open = this.savedOpen.get(run.foldId) === true;
+      const summary = document.createElement("summary");
+      summary.textContent = run.fold === "action_input" ? "ACTION INPUT · 工具输入" : "OBSERVATION · 执行结果";
+      const body = document.createElement("pre"); body.className = "log-fold-body";
+      node.append(summary, body); this.container.appendChild(node);
+      fold = {node, body}; this.folds.set(run.foldId, fold);
+    } else if (!fold.body.hasChildNodes()) {
+      // A reparsed partial line may have plain text before this block.
+      // Move only emptied blocks into the new order, never committed content.
+      this.markSpacing(fold.node, dirty);
+      this.container.appendChild(fold.node);
+    }
+    this.markSpacing(fold.node, dirty);
+    return fold;
+  }
+  render(text) {
+    text = this.partial + text;
+    const touched = new Set(), dirty = new Set();
+    // Roll back only the unfinished line; keep its <details> node so streaming
+    // cannot close a panel the user already opened.
+    for (const piece of this.partialPieces) {
+      this.markSpacing(piece.foldId ? this.folds.get(piece.foldId)?.node : piece.node, dirty);
+      piece.node.remove();
+      if (piece.foldId) touched.add(piece.foldId);
+    }
+    this.partialPieces = []; this.partial = "";
+    for (const line of text.match(/[^\n]*\n|[^\n]+$/g) || []) {
+      const {runs, state} = colorLogLine(line, this.lineState);
+      const pieces = [];
+      let skip = this.hidden;
+      for (const run of runs) {
+        if (skip >= run.text.length) { skip -= run.text.length; continue; }
+        const node = document.createElement("span");
+        node.className = run.color; node.textContent = run.text.slice(skip); skip = 0;
+        // Model output is text, never HTML, even inside a collapsed panel.
+        if (run.fold) {
+          this.foldFor(run, dirty).body.appendChild(node); touched.add(run.foldId);
+        } else {
+          if (!run.color && /^[ \t\r\n]+$/.test(node.textContent)) node.dataset.logGap = "true";
+          this.container.appendChild(node);
+          this.markSpacing(node, dirty);
+        }
+        pieces.push({node, foldId:run.foldId});
+      }
+      if (line.endsWith("\n")) {
+        this.lineState = state; this.hidden = Math.max(0, this.hidden - line.length);
+      } else {
+        this.partial = line; this.partialPieces = pieces;
+      }
+    }
+    for (const id of touched) {
+      const fold = this.folds.get(id);
+      if (fold && !fold.body.hasChildNodes()) {
+        this.markSpacing(fold.node, dirty);
+        fold.node.remove(); this.folds.delete(id);
+      }
+    }
+    this.compactFoldSpacing(dirty);
+    this.savedOpen.clear();
+  }
+}
 // END LOG HIGHLIGHTER
-const logHighlighter = new LogHighlighter(out, MAX_DISPLAY);
+const logHighlighter = new FoldedLogHighlighter(out, MAX_DISPLAY);
 function flushOutput() {
   clearTimeout(paintTimer); paintTimer = null;
   if (!pendingOutput) return;
@@ -1056,21 +1184,36 @@ $("history-prev").addEventListener("click", () => {
   if (previewPages.length && !previewLoading) loadHistoryPreview(previewPages[previewPages.length - 1], previewPages.slice(0, -1));
 });
 $("history-use").addEventListener("click", async () => {
-  if (running || historyDeleting || !previewData) return;
+  if (running || historyDeleting || previewLoading || !previewData) return;
   const name = previewData.file.name;
-  cancelStream(); setBusy(true);
+  cancelStream();
+  const controller = new AbortController(); streamController = controller;
+  setBusy(true);
   try {
-    const response = await apiFetch(`/api/runs/latest?${new URLSearchParams({history:name})}`, {cache:"no-store"});
+    const response = await apiFetch(`/api/runs/latest?${new URLSearchParams({history:name})}`,
+      {cache:"no-store", signal:controller.signal});
     if (!response.ok) throw new Error(await responseError(response));
     const {run: data} = await response.json();
+    if (streamController !== controller) return;
+    // Loading history selects context, not an old task's log stream. Clear
+    // pending output and parser/folding context so two tasks cannot mix.
+    clearOutput();
+    clearInterval(timer); timer = null; started = 0;
+    runId = null; eventOffset = 0;
+    $("elapsed").textContent = "00:00";
     if (data) applyRunSettings(data);
     else { $("input").value = ""; $("input-count").textContent = "0"; }
     $("history").value = name;
+    $("run-meta").textContent = `${selectedModel()} · ${name} · 尚未运行`;
+    setState("idle", "会话已载入");
     showTab("run");
-    message(`已载入 ${name}。点击“恢复所选会话”继续原任务，或输入补充指令。`);
+    message(`已载入 ${name}，旧日志显示已清空（磁盘日志未删除）。点击“恢复所选会话”继续原任务，或输入补充指令。`);
     toast("会话已选择，尚未执行任何工具。");
-  } catch (error) { message(error.message, true); }
-  finally { setBusy(false); }
+  } catch (error) {
+    if (streamController === controller && error.name !== "AbortError") message(error.message, true);
+  } finally {
+    if (streamController === controller) { streamController = null; setBusy(false); }
+  }
 });
 $("history-upload").addEventListener("change", async () => {
   const file = $("history-upload").files[0]; if (!file) return;
