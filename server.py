@@ -9,6 +9,7 @@ This console executes agent tools on your machine; restrict remote access.
 """
 
 import argparse
+import atexit
 import codecs
 import json
 import hmac
@@ -22,6 +23,7 @@ import stat
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -37,6 +39,12 @@ LOG_PATH = AGENT_DIR / "log"
 TEMP_DIR = AGENT_DIR / "temp"
 HISTORY_PREVIEW_BYTES = 256 * 1024
 HISTORY_PREVIEW_LINES = 50
+RESUME_PROMPT = (
+    "Continue the previous task from the saved conversation and observations. "
+    "The previous run may have been interrupted. If a tool call has no saved "
+    "observation, its outcome is unknown: inspect the current state before "
+    "retrying it, and do not assume it failed or blindly repeat side effects."
+)
 EFFORT_LEVELS = ("auto", "none", "minimal", "low", "medium", "high", "xhigh", "max")
 RUN_LOCK = threading.Lock()
 STATE_LOCK = threading.Lock()
@@ -257,12 +265,12 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
           <label for="history">会话 / History</label>
           <div class="row"><input id="history" name="history" value="new" required maxlength="255" list="history-list" spellcheck="false" autocomplete="off"><button class="btn small" id="new-history" type="button">＋ 新会话</button></div>
           <datalist id="history-list"></datalist>
-          <p class="help">同名会话继续上下文；History 选项卡可浏览、预览并新建文件。</p>
+          <p class="help">同名会话继续上下文；卡住时可停止后恢复。刷新或断线不会停止后台任务。</p>
           <button type="button" class="btn small" id="browse-history" style="margin-top:8px">浏览 / 预览会话文件 →</button>
         </div>
         <div class="field">
           <label for="input">任务指令 / Prompt</label>
-          <textarea id="input" name="input" required placeholder="今天让 Agent 帮你完成什么？&#10;&#10;描述目标、约束，以及你期待的结果。"></textarea>
+          <textarea id="input" name="input" placeholder="今天让 Agent 帮你完成什么？&#10;&#10;描述目标、约束，以及你期待的结果。"></textarea>
           <p class="help"><span id="input-count">0</span> 字符 · Ctrl / ⌘ + Enter 运行</p>
         </div>
         <details class="advanced">
@@ -273,6 +281,8 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
           </div>
         </details>
         <div class="row"><button class="btn primary" id="run" type="submit" disabled>▶ 开始运行</button><button class="btn danger" id="stop" type="button" disabled>■ 停止</button></div>
+        <div class="row" style="margin-top:10px"><button class="btn" id="resume" type="button" disabled>↻ 恢复所选会话</button><button class="btn small" id="reconnect" type="button">重连后台任务</button></div>
+        <p class="help">恢复时留空指令即可继续原任务；也可输入补充要求。从最后保存的上下文继续，不会自动重放结果未知的工具。</p>
         <div id="status-message" role="status" aria-live="polite">正在读取本地配置…</div>
       </form>
     </section>
@@ -328,7 +338,7 @@ footer { display:flex; justify-content:space-between; gap:16px; margin-top:24px;
         </details>
       </section>
       <section class="panel" aria-label="History 预览">
-        <div class="panel-head console-top"><span class="panel-title" id="history-title">选择一个 JSONL 文件</span><button type="button" class="btn small" id="history-use" disabled>用于下一次运行 →</button></div>
+        <div class="panel-head console-top"><span class="panel-title" id="history-title">选择一个 JSONL 文件</span><button type="button" class="btn small" id="history-use" disabled>恢复此会话 →</button></div>
         <div class="toolbar">
           <div class="tools"><label for="history-view">预览方式 <select id="history-view"><option value="readable">会话内容</option><option value="raw">原始 JSONL</option></select></label></div>
           <button type="button" class="btn small" id="history-preview-refresh" disabled>重新读取</button>
@@ -352,7 +362,7 @@ async function apiFetch(url, options = {}) {
   if (options.method && options.method.toUpperCase() !== "GET") headers.set("X-CSRF-Token", csrfToken);
   const response = await fetch(url, {...options, headers, credentials:"same-origin"});
   if (response.status === 401) {
-    running = false; runId = null;
+    cancelStream(); running = false; runId = null;
     window.location.replace("/login");
     throw new Error("登录已失效，请重新登录。");
   }
@@ -364,6 +374,7 @@ const MAX_DISPLAY = 1000000; // Bound browser memory; the complete log stays on 
 let config = null, running = false, runId = null, started = 0, timer = null;
 let rawLog = "", pendingOutput = "", paintTimer = null, toastTimer = null;
 let preferences = {}, trimmed = false, userScrolled = false;
+let streamController = null, eventOffset = 0, reconnectTimer = null, restoring = false;
 try { preferences = JSON.parse(localStorage.getItem(STORAGE) || "{}") || {}; } catch (_) {}
 function toast(message) {
   $("toast").textContent = message; $("toast").hidden = false;
@@ -391,6 +402,8 @@ function setBusy(busy) {
   for (const el of form.querySelectorAll("input, select, textarea, button")) el.disabled = busy;
   $("run").disabled = busy || !config;
   $("stop").disabled = !busy || !runId;
+  $("resume").disabled = busy || !config;
+  $("reconnect").disabled = !config;
   $("run").textContent = busy ? "◌ 运行中…" : "▶ 开始运行";
 }
 function tick() {
@@ -598,45 +611,63 @@ async function loadConfig() {
     for (const name of config.histories) $("history-list").appendChild(new Option(name, name));
     const warnings = [];
     if (!config.credentials_configured) warnings.push("启动前请在服务端环境中配置 BASE_URL 和 API_KEY；密钥不会发送到页面。");
-    if (config.busy) warnings.push("服务端已有任务运行，新任务需等待它结束；此页面不会接管其他窗口的任务。");
     $("notice").textContent = warnings.join(" "); $("notice").hidden = !warnings.length;
-    setBusy(false); message("准备就绪。选择模型并输入任务。");
+    message("准备就绪。选择模型并输入任务。");
+    await restoreRun();
   } catch (error) { setState("error", "配置加载失败"); message(`${error.message}，请刷新重试。`, true); }
 }
-form.addEventListener("submit", async event => {
-  event.preventDefault();
-  if (running || !config) return;
-  if (!$("input").value.trim()) { message("请输入非空的任务指令。", true); $("input").focus(); return; }
-  if (!selectedModel()) { message("请选择或输入模型名称。", true); $("custom-model").focus(); return; }
-  const body = new FormData(form);
-  body.set("model", selectedModel());
-  const model = selectedModel(), history = $("history").value;
-  savePreferences(); clearOutput(); runId = null; setBusy(true);
-  setState("running", "连接中"); message("正在启动 Agent…");
-  started = Date.now(); tick(); timer = setInterval(tick, 1000);
-  $("run-meta").textContent = `${model} · ${history}`;
-  let reader = null, finished = false;
+function applyRunSettings(data, clearPrompt = true) {
+  if (config.models.includes(data.model)) $("model").value = data.model;
+  else { $("model").value = CUSTOM; $("custom-model").value = data.model; }
+  updateModel();
+  $("history").value = data.history;
+  $("effort").value = data.effort;
+  $("max-steps").value = data.max_steps;
+  $("max-tokens").value = data.max_tokens;
+  if (clearPrompt) $("input").value = "";
+  $("input-count").textContent = $("input").value.length.toLocaleString();
+  $("run-meta").textContent = `${data.model} · ${data.history}`;
+}
+function cancelStream() {
+  clearTimeout(reconnectTimer);
+  if (streamController) streamController.abort();
+  streamController = null;
+}
+function finishRun(item) {
+  if (item.error && item.code === 0) item.code = -1;
+  flushOutput(); clearInterval(timer);
+  $("elapsed").textContent = `${Math.floor((item.elapsed || 0) / 60).toString().padStart(2, "0")}:${Math.floor((item.elapsed || 0) % 60).toString().padStart(2, "0")}`;
+  const interrupted = item.interrupted;
+  setState(interrupted || item.stopped ? "stopped" : item.code === 0 ? "success" : "error",
+    interrupted ? "已中断" : item.stopped ? "已停止" : item.code === 0 ? "已完成" : "运行失败");
+  message(interrupted ? "服务曾重启或运行中断。可点击“恢复所选会话”，从已保存的 history 继续。" :
+    item.stopped ? "任务已停止，日志和 history 已保留。留空指令后点击“恢复所选会话”即可继续。" :
+    item.code === 0 ? "运行完成。可在同一会话输入新指令继续。" :
+    (item.error || `Agent 退出码 ${item.code}`) + "。修复问题后可恢复所选会话。", !item.stopped && !interrupted && item.code !== 0);
+  if (item.history_warning) message($("status-message").textContent + " " + item.history_warning);
+  runId = null; setBusy(false);
+  if (!$("history-panel").hidden) refreshHistories();
+}
+async function readRunStream(response, controller) {
+  if (!response.ok) throw new Error(await responseError(response));
+  if (!response.body) throw new Error("浏览器不支持流式响应，请使用现代浏览器。");
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  let buffer = "", finished = false;
+  function consume(line) {
+    if (!line.trim() || streamController !== controller) return;
+    const item = JSON.parse(line);
+    if (item.type === "start") {
+      runId = item.id; applyRunSettings(item); setBusy(true);
+      started = Date.parse(item.started_at) || Date.now();
+      clearInterval(timer); tick(); timer = setInterval(tick, 1000);
+      setState("running", "运行中");
+      message("已连接后台任务；刷新/断线不会停止运行，卡住时可点“停止”后恢复。");
+    } else if (item.type === "output") appendOutput(item.text);
+    else if (item.type === "done") { finished = true; finishRun(item); }
+    else if (item.type === "error") throw new Error(item.message);
+    if (Number.isSafeInteger(item.offset)) eventOffset = item.offset;
+  }
   try {
-    const response = await apiFetch("/run", {method:"POST", body});
-    if (!response.ok) throw new Error(await responseError(response));
-    if (!response.body) throw new Error("浏览器不支持流式响应，请使用现代浏览器。");
-    reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    function consume(line) {
-      if (!line.trim()) return;
-      const item = JSON.parse(line);
-      if (item.type === "start") {
-        runId = item.id; $("stop").disabled = false; setState("running", "运行中");
-        message("输出实时写入 ./log；向上滚动会暂停自动跟随。");
-      } else if (item.type === "output") appendOutput(item.text);
-      else if (item.type === "error") throw new Error(item.message);
-      else if (item.type === "done") {
-        finished = true;
-        setState(item.stopped ? "stopped" : item.code === 0 ? "success" : "error", item.stopped ? "已停止" : item.code === 0 ? "已完成" : "运行失败");
-        message(item.stopped ? "任务已停止，已有日志和 history 保留。" : item.code === 0 ? "运行完成。完整输出已保存到 ./log。" : `Agent 退出码 ${item.code}，请查看日志中的错误信息。`, !item.stopped && item.code !== 0);
-      }
-    }
     while (true) {
       const {value, done} = await reader.read();
       if (done) { buffer += decoder.decode(); break; }
@@ -647,20 +678,93 @@ form.addEventListener("submit", async event => {
       }
     }
     if (buffer.trim()) consume(buffer);
-    if (!finished) throw new Error("日志连接意外中断，未收到完成状态。");
-  } catch (error) {
-    setState("error", "运行异常"); message(error.message, true);
-    // If the transport fails, also request cancellation; never silently leave work running.
-    if (runId && !finished) {
-      try { await apiFetch("/stop", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:runId})}); } catch (_) {}
-    }
+    if (!finished && streamController === controller) throw new Error("日志连接中断");
   } finally {
-    if (reader) { try { await reader.cancel(); } catch (_) {} reader.releaseLock(); }
-    flushOutput(); clearInterval(timer); tick(); runId = null; setBusy(false);
-    if (finished && !Array.from($("history-list").options).some(option => option.value === history)) $("history-list").appendChild(new Option(history, history));
-    if (!$("history-panel").hidden) refreshHistories();
+    try { await reader.cancel(); } catch (_) {}
+    reader.releaseLock();
   }
-});
+}
+function streamFailed(error, controller) {
+  if (streamController !== controller || error.name === "AbortError") return;
+  flushOutput();
+  setState("stopped", "等待重连");
+  message(`${error.message}；3 秒后重新连接。后台任务不会因断线被取消。`, true);
+  // Query the backend even if POST /run lost its response before the start
+  // event; never retry POST automatically (that could launch a duplicate task).
+  reconnectTimer = setTimeout(() => {
+    if (runId) connectRun(runId);
+    else restoreRun();
+  }, 3000);
+}
+async function connectRun(id) {
+  cancelStream();
+  const controller = new AbortController(); streamController = controller;
+  runId = id; setBusy(true); setState("running", "连接中");
+  try {
+    const response = await apiFetch(`/api/runs/${id}/events?offset=${eventOffset}`, {cache:"no-store", signal:controller.signal});
+    if (response.status === 404 || response.status === 400) {
+      // Lost disk state or an invalidated cursor: rediscover instead of retrying
+      // the same cursor forever.
+      eventOffset = 0; runId = null;
+      throw new Error(await responseError(response));
+    }
+    if (response.ok) {
+      setState("running", "运行中"); message("已重新连接后台日志。");
+    }
+    await readRunStream(response, controller);
+  } catch (error) { streamFailed(error, controller); }
+}
+async function restoreRun() {
+  if (restoring) return;
+  restoring = true;
+  cancelStream();
+  const controller = new AbortController(); streamController = controller;
+  setBusy(true);
+  try {
+    const response = await apiFetch("/api/runs/latest", {cache:"no-store", signal:controller.signal});
+    if (!response.ok) throw new Error(await responseError(response));
+    const {run: data} = await response.json();
+    if (streamController !== controller) return;
+    if (!data) { runId = null; clearInterval(timer); setBusy(false); setState("idle", "待命"); message("没有已保存的 Web 运行；可从 History 选择旧会话恢复。"); return; }
+    applyRunSettings(data);
+    clearOutput(); eventOffset = 0;
+    started = Date.parse(data.started_at) || Date.now();
+    clearInterval(timer); tick(); timer = setInterval(tick, 1000);
+    // This also replays completed/interrupted runs without executing tools.
+    connectRun(data.id);
+  } catch (error) { streamFailed(error, controller); }
+  finally { restoring = false; }
+}
+async function startRun(resume = false) {
+  if (running || !config) return;
+  if (!resume && !$("input").value.trim()) { message("请输入任务指令，或点击“恢复所选会话”。", true); $("input").focus(); return; }
+  if (!form.reportValidity()) return;
+  if (!selectedModel()) { message("请选择或输入模型名称。", true); $("custom-model").focus(); return; }
+  const body = new FormData(form);
+  body.set("model", selectedModel());
+  if (resume) body.set("resume", "1");
+  const model = selectedModel(), history = $("history").value;
+  cancelStream();
+  const controller = new AbortController(); streamController = controller;
+  savePreferences(); clearOutput(); eventOffset = 0; runId = null; setBusy(true);
+  setState("running", "连接中"); message(resume ? "正在从 history 恢复 Agent…" : "正在启动 Agent…");
+  started = Date.now(); tick(); clearInterval(timer); timer = setInterval(tick, 1000);
+  $("run-meta").textContent = `${model} · ${history}`;
+  try {
+    const response = await apiFetch("/run", {method:"POST", body, signal:controller.signal});
+    if (!response.ok) {
+      const error = await responseError(response);
+      if (response.status === 409) { await restoreRun(); return; }
+      if (response.status >= 500) throw new Error(error);
+      clearInterval(timer); setBusy(false); setState("error", "启动失败"); message(error, true);
+      return;
+    }
+    await readRunStream(response, controller);
+  } catch (error) { streamFailed(error, controller); }
+}
+form.addEventListener("submit", event => { event.preventDefault(); startRun(); });
+$("resume").addEventListener("click", () => startRun(true));
+$("reconnect").addEventListener("click", restoreRun);
 $("stop").addEventListener("click", async () => {
   if (!runId) return;
   $("stop").disabled = true; message("正在停止 Agent 及其工具进程…");
@@ -731,19 +835,15 @@ $("logout").addEventListener("click", async () => {
   try {
     const response = await apiFetch("/logout", {method:"POST"});
     if (!response.ok) throw new Error(await responseError(response));
-    running = false; runId = null; clearOutput();
+    cancelStream(); running = false; runId = null; clearOutput();
     window.location.replace("/login");
   } catch (error) { toast(error.message); $("logout").disabled = false; }
 });
 window.addEventListener("pageshow", event => {
   if (event.persisted) window.location.reload();
 });
-window.addEventListener("beforeunload", event => {
-  if (running) { event.preventDefault(); event.returnValue = ""; }
-});
-window.addEventListener("pagehide", () => {
-  if (runId) navigator.sendBeacon("/stop", new URLSearchParams({id:runId, csrf_token:csrfToken}));
-});
+// Navigation disconnects only the viewer. Explicit Stop/Logout still cancels.
+window.addEventListener("pagehide", cancelStream);
 
 // BEGIN HISTORY UI
 let historyFiles = [], selectedHistory = null, previewData = null;
@@ -826,7 +926,7 @@ function renderHistoryPreview() {
   container.replaceChildren();
   if (!previewData) return;
   if (!previewData.raw) {
-    const empty = document.createElement("p"); empty.textContent = "这是一个空会话文件。选择“用于下一次运行”后，Agent 会在其中追加记录。";
+    const empty = document.createElement("p"); empty.textContent = "这是一个空会话文件。选择“恢复此会话”后，Agent 会在其中追加记录。";
     container.appendChild(empty); return;
   }
   if ($("history-view").value === "raw") {
@@ -896,10 +996,22 @@ $("history-next").addEventListener("click", () => {
 $("history-prev").addEventListener("click", () => {
   if (previewPages.length && !previewLoading) loadHistoryPreview(previewPages[previewPages.length - 1], previewPages.slice(0, -1));
 });
-$("history-use").addEventListener("click", () => {
+$("history-use").addEventListener("click", async () => {
   if (running || !previewData) return;
-  $("history").value = previewData.file.name;
-  showTab("run"); toast(`已选择 ${previewData.file.name}，下一次运行将追加到该会话。`);
+  const name = previewData.file.name;
+  cancelStream(); setBusy(true);
+  try {
+    const response = await apiFetch(`/api/runs/latest?${new URLSearchParams({history:name})}`, {cache:"no-store"});
+    if (!response.ok) throw new Error(await responseError(response));
+    const {run: data} = await response.json();
+    if (data) applyRunSettings(data);
+    else { $("input").value = ""; $("input-count").textContent = "0"; }
+    $("history").value = name;
+    showTab("run");
+    message(`已载入 ${name}。点击“恢复所选会话”继续原任务，或输入补充指令。`);
+    toast("会话已选择，尚未执行任何工具。");
+  } catch (error) { message(error.message, true); }
+  finally { setBusy(false); }
 });
 $("history-upload").addEventListener("change", async () => {
   const file = $("history-upload").files[0]; if (!file) return;
@@ -949,8 +1061,212 @@ def event(kind, **fields):
     return json.dumps({"type": kind, **fields}, ensure_ascii=False) + "\n"
 
 
+def run_path(run_id, suffix):
+    if not isinstance(run_id, str) or not re.fullmatch(r"[0-9a-f]{32}", run_id):
+        raise ValueError("无效的运行标识")
+    return TEMP_DIR / "web-runs" / f"{run_id}.{suffix}"
+
+
+def read_run(run_id):
+    path = run_path(run_id, "json")
+    with STATE_LOCK:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        active = ACTIVE_RUN is not None and ACTIVE_RUN.id == run_id
+    if active:
+        return {**data, "status": "running"}
+    # Never resurrect a PID after a server restart: only saved context is safe
+    # to resume. Tool side effects before the last checkpoint may be unknown.
+    if data["status"] == "running" and not active:
+        data = {**data, "status": "interrupted"}
+    return data
+
+
+def latest_run(history=None):
+    directory = TEMP_DIR / "web-runs"
+    if not directory.exists():
+        return None
+    latest = None
+    for path in directory.glob("*.json"):
+        try:
+            data = read_run(path.stem)
+            if history is not None and data["history"] != history:
+                continue
+            if latest is None or data["started_at"] > latest["started_at"]:
+                latest = data
+        except (OSError, ValueError, KeyError):
+            app.logger.warning("Could not read run metadata: %s", path.name)
+    return latest
+
+
+def completion_event(data):
+    return dict(
+        code=data.get("code"), stopped=data["status"] == "stopped",
+        interrupted=data["status"] == "interrupted",
+        elapsed=data.get("elapsed", 0), error=data.get("error"),
+        history_warning=data.get("history_warning"),
+    )
+
+
+def stream_run_events(run_id, offset=0):
+    """Replay a disk-backed stream. Disconnecting only closes this reader."""
+    with run_path(run_id, "events").open("rb") as file:
+        file.seek(offset)
+        while True:
+            position = file.tell()
+            line = file.readline()
+            if line.endswith(b"\n"):
+                item = json.loads(line)
+                item["offset"] = file.tell()
+                kind = item.pop("type")
+                yield event(kind, **item)
+                if kind == "done":
+                    return
+                continue
+            # A writer may be between writes, or the server died mid-record.
+            file.seek(position)
+            data = read_run(run_id)
+            if data["status"] != "running":
+                # Recheck EOF after metadata: the writer publishes completion
+                # only after flushing all output.
+                if file.readline().endswith(b"\n"):
+                    file.seek(position)
+                    continue
+                yield event("done", offset=position, **completion_event(data))
+                return
+            yield event("heartbeat", offset=position)
+            time.sleep(1)
+
+
+def fsync_directory(path):
+    """Persist a rename, not just the contents of its new inode (POSIX)."""
+    if os.name == "posix":
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+def atomic_write(path, writer, before_replace=None):
+    """Readers see either the previous file or the complete, fsynced new file."""
+    fd, temporary = tempfile.mkstemp(prefix=".agent-publish-", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary)
+    try:
+        with os.fdopen(fd, "wb") as file:
+            writer(file)
+            file.flush()
+            os.fsync(file.fileno())
+        if before_replace is not None:
+            before_replace()
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def validate_history_record(raw, description):
+    try:
+        record = strict_json_loads(raw.decode("utf-8"))
+        if (not isinstance(record, dict) or record.get("role") not in {"user", "assistant"}
+                or not isinstance(record.get("content"), str)):
+            raise ValueError("需包含 role 和字符串 content")
+    except (ValueError, RecursionError) as exc:
+        raise ValueError(f"{description}不是完整有效的 UTF-8 JSONL 消息；不会忽略或修补记录") from exc
+
+
+class HistoryCheckpoint:
+    """Agent writes only a private working copy; server publishes valid prefixes.
+
+    No changes to Agent or its save_history method are necessary. A killed agent
+    may leave a partial record in the working copy, but never in the public
+    history. Keep that working copy for diagnosis rather than silently fixing it.
+    """
+
+    def __init__(self, name, work_path):
+        self.path = history_path(name)
+        self.work_path = work_path
+        self.version = self.target_version()
+        self.validated = 0
+        self.published = 0
+        self.pending_bytes = 0
+        self.line_number = 0
+
+    def target_version(self):
+        if self.path.is_symlink():
+            raise ValueError("不允许写入符号链接")
+        try:
+            info = self.path.stat()
+        except FileNotFoundError:
+            return None
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("History 必须是普通文件")
+        return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+    def check_target(self):
+        if self.target_version() != self.version:
+            raise ValueError("History 被其他进程修改，已停止提交以避免覆盖；工作副本已保留")
+
+    def prepare(self):
+        def seed(destination):
+            if self.version is None:
+                return
+            # Read binary: never substitute invalid UTF-8 or skip malformed JSON.
+            with self.path.open("rb") as source:
+                for line_number, raw in enumerate(source, 1):
+                    if raw.strip():
+                        validate_history_record(raw, f"History 第 {line_number} 行")
+                    destination.write(raw)
+                    self.validated += len(raw)
+                    self.line_number = line_number
+                    if not raw.endswith(b"\n"):
+                        # A valid imported final JSON record need not have LF.
+                        # Normalize only the private copy before Agent appends.
+                        destination.write(b"\n")
+                        self.validated += 1
+            self.check_target()
+        atomic_write(self.work_path, seed)
+        self.published = self.validated if self.version and self.version[2] == self.validated else -1
+
+    def commit(self):
+        with self.work_path.open("rb") as source:
+            size = os.fstat(source.fileno()).st_size
+            if size < self.validated:
+                raise ValueError("History 工作副本意外变短；停止提交")
+            cursor, line_number = self.validated, self.line_number
+            source.seek(cursor)
+            while source.tell() < size:
+                raw = source.readline(size - source.tell())
+                if not raw.endswith(b"\n"):
+                    break  # No commit marker: writer is still in this record.
+                line_number += 1
+                if raw.strip():
+                    validate_history_record(raw, f"History 工作副本第 {line_number} 行")
+                cursor = source.tell()
+            self.pending_bytes = size - cursor
+            self.check_target()
+            if cursor == self.published:
+                return
+
+            def copy_prefix(destination):
+                source.seek(0)
+                remaining = cursor
+                while remaining:
+                    chunk = source.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise OSError("History 工作副本在提交期间变短")
+                    destination.write(chunk)
+                    remaining -= len(chunk)
+
+            # Even SIGKILL or a failed write cannot expose half a JSON record:
+            # fsync the entire snapshot before a same-filesystem atomic rename.
+            atomic_write(self.path, copy_prefix, before_replace=self.check_target)
+            self.version = self.target_version()
+            self.validated = self.published = cursor
+            self.line_number = line_number
+
+
 class AgentRun:
-    """One subprocess, with idempotent cleanup even if the HTTP client disconnects."""
+    """A background subprocess whose lifetime is independent of HTTP readers."""
 
     def __init__(self, text, history, model, effort, max_steps, max_tokens):
         self.id = uuid.uuid4().hex
@@ -963,16 +1279,37 @@ class AgentRun:
         self.input_path = TEMP_DIR / f"web-input-{self.id}.txt"
         self.process = None
         self.log_file = None
+        self.checkpoint = None
+        self.checkpoint_stop = threading.Event()
+        self.checkpoint_error = None
+        self.checkpoint_worker = None
         self.stopped = False
         self.closed = False
         self.lock = threading.Lock()
         self.started = time.monotonic()
+        self.metadata = dict(
+            id=self.id, input=text, history=history, model=model, effort=effort,
+            max_steps=max_steps, max_tokens=max_tokens, status="running",
+            started_at=datetime.now().astimezone().isoformat(timespec="milliseconds"),
+        )
+
+    def save_metadata(self):
+        data = json.dumps(self.metadata, ensure_ascii=False).encode("utf-8")
+        atomic_write(run_path(self.id, "json"), lambda file: file.write(data))
+
+    def emit(self, kind, **fields):
+        with run_path(self.id, "events").open("a", encoding="utf-8") as file:
+            file.write(event(kind, **fields))
+            file.flush()
+            os.fsync(file.fileno())
 
     def start(self):
         TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        run_path(self.id, "json").parent.mkdir(mode=0o700, exist_ok=True)
+        self.checkpoint = HistoryCheckpoint(self.history, run_path(self.id, "history.jsonl"))
+        self.checkpoint.prepare()
         self.input_path.write_text(self.text, encoding="utf-8")
         env = os.environ.copy()
-        # Agent tools need model credentials, but never the web console secrets.
         for key in WEB_SECRET_ENV:
             env.pop(key, None)
         env.update(
@@ -984,7 +1321,7 @@ class AgentRun:
             [
                 sys.executable, str(AGENT_DIR / "core" / "agent.py"),
                 "--input", str(self.input_path),
-                "--history", self.history,
+                "--history", str(self.checkpoint.work_path),
                 "--effort", self.effort,
                 "--max_steps", str(self.max_steps),
                 "--max_tokens", str(self.max_tokens),
@@ -993,13 +1330,14 @@ class AgentRun:
             stdin=subprocess.DEVNULL, bufsize=0, env=env,
             start_new_session=(os.name == "posix"),
         )
+        self.emit("start", **self.metadata)
+        self.save_metadata()
 
     def _kill(self):
         if self.process is None:
             return
         try:
             if os.name == "posix":
-                # Tools can spawn shells/children; kill the whole isolated group.
                 os.killpg(self.process.pid, signal.SIGKILL)
             elif self.process.poll() is None:
                 self.process.kill()
@@ -1033,37 +1371,103 @@ class AgentRun:
                     with STATE_LOCK:
                         if ACTIVE_RUN is self:
                             ACTIVE_RUN = None
-                    RUN_LOCK.release()
+                        RUN_LOCK.release()
 
-    def stream(self):
-        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    def watch_history(self):
         try:
-            yield event("start", id=self.id, model=self.model, history=self.history)
+            while not self.checkpoint_stop.is_set():
+                self.checkpoint.commit()
+                self.checkpoint_stop.wait(0.2)
+        except Exception as exc:
+            self.checkpoint_error = exc
+            # Do not keep executing tools if progress cannot be committed.
+            self._kill()
+
+    def collect(self):
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        code, error = None, None
+        try:
+            self.checkpoint_worker = threading.Thread(
+                target=self.watch_history, name=f"history-{self.id}", daemon=True,
+            )
+            self.checkpoint_worker.start()
             while True:
                 chunk = self.process.stdout.read(8192)
-                if not chunk:
-                    break
-                text = decoder.decode(chunk)
+                text = decoder.decode(chunk, final=not chunk)
                 if text:
                     self.log_file.write(text)
                     self.log_file.flush()
-                    yield event("output", text=text)
-            tail = decoder.decode(b"", final=True)
-            if tail:
-                self.log_file.write(tail)
-                self.log_file.flush()
-                yield event("output", text=tail)
+                    self.emit("output", text=text)
+                if not chunk:
+                    break
             code = self.process.wait()
-            self.log_file.flush()
-            # Release resources before sending completion, so an immediate retry works.
-            self.close()
-            yield event("done", code=code, stopped=self.stopped,
-                        elapsed=round(time.monotonic() - self.started, 3))
         except Exception as exc:
-            app.logger.exception("Agent log stream failed")
-            yield event("error", message=f"日志流异常：{exc}")
+            app.logger.exception("Agent log collection failed")
+            error = f"日志收集异常：{exc}"
         finally:
-            self.close()
+            # Freeze the writer before the final checkpoint. Stop/Logout never
+            # release RUN_LOCK until that checkpoint has been fully published.
+            self._kill()
+            self.process.wait()
+            self.checkpoint_stop.set()
+            if self.checkpoint_worker and self.checkpoint_worker.ident is not None:
+                self.checkpoint_worker.join()
+            try:
+                if self.checkpoint_error:
+                    raise self.checkpoint_error
+                self.checkpoint.commit()
+                self.metadata.update(
+                    history_committed_bytes=self.checkpoint.published,
+                    history_pending_bytes=self.checkpoint.pending_bytes,
+                )
+                if self.checkpoint.pending_bytes:
+                    warning = (
+                        "中断时未写完的记录仅保留在运行工作副本中，未提交到正式 history；"
+                        "恢复将从最后一条完整记录继续。"
+                    )
+                    self.metadata["history_warning"] = warning
+                    if not self.stopped:
+                        error = error or warning
+            except Exception as exc:
+                app.logger.exception("Could not commit agent history")
+                error = f"History 提交失败：{exc}。正式 history 保持完整，工作副本已保留。"
+            try:
+                self.log_file.flush()
+                os.fsync(self.log_file.fileno())
+            except OSError as exc:
+                error = error or f"日志落盘失败：{exc}"
+            self.metadata.update(
+                status="failed" if error else "stopped" if self.stopped else "completed" if code == 0 else "failed",
+                code=code, error=error,
+                elapsed=round(time.monotonic() - self.started, 3),
+            )
+            try:
+                self.save_metadata()
+            except OSError:
+                app.logger.exception("Could not save run completion")
+            finally:
+                self.close()
+            try:
+                self.emit("done", **completion_event(self.metadata))
+            except OSError:
+                app.logger.exception("Could not save completion event")
+
+    def stream(self):
+        return stream_run_events(self.id)
+
+
+def shutdown_active_run():
+    """Normal server shutdown must not leave tool children writing history."""
+    with STATE_LOCK:
+        current = ACTIVE_RUN
+    if current is not None:
+        current.stop()
+        worker = getattr(current, "worker", None)
+        if worker is not None and worker is not threading.current_thread():
+            worker.join()
+
+
+atexit.register(shutdown_active_run)
 
 
 LOGIN_PAGE = """<!DOCTYPE html>
@@ -1496,6 +1900,46 @@ def configuration():
     )
 
 
+@app.get("/api/runs/latest")
+def get_latest_run():
+    try:
+        history = request.args.get("history")
+        if history is not None:
+            history = history_filename(history, add_suffix=True)
+        with STATE_LOCK:
+            current = ACTIVE_RUN
+        data = read_run(current.id) if current and history is None else latest_run(history)
+        return jsonify(run=data)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except OSError:
+        return jsonify(error="无法读取保存的运行状态"), 500
+
+
+@app.get("/api/runs/<run_id>/events")
+def reconnect_run(run_id):
+    try:
+        read_run(run_id)
+        offset = int(request.args.get("offset", "0"))
+        with run_path(run_id, "events").open("rb") as file:
+            size = file.seek(0, os.SEEK_END)
+            if offset < 0 or offset > size:
+                raise ValueError("日志偏移量无效，请从头重新连接")
+            if offset:
+                file.seek(offset - 1)
+                if file.read(1) != b"\n":
+                    raise ValueError("日志偏移量必须位于事件边界")
+    except FileNotFoundError:
+        return jsonify(error="找不到该次运行，可从 History 选择会话继续"), 404
+    except (ValueError, OSError) as exc:
+        return jsonify(error=str(exc)), 400
+    return Response(
+        stream_run_events(run_id, offset),
+        content_type="application/x-ndjson; charset=utf-8",
+        headers={"X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/run")
 def run():
     global ACTIVE_RUN
@@ -1505,11 +1949,15 @@ def run():
     effort = request.form.get("effort", os.environ.get("REASONING_EFFORT", "auto")).strip().lower()
     if effort == "ultra-high":
         effort = "xhigh"
-    if not text.strip():
-        return jsonify(error="请输入非空的任务指令"), 400
+    resume = request.form.get("resume") == "1"
+    if not text.strip() and not resume:
+        return jsonify(error="请输入非空的任务指令，或选择恢复会话"), 400
     try:
-        history_path(history_filename(history, add_suffix=True))
-    except ValueError as exc:
+        history = history_filename(history, add_suffix=True)
+        path = history_path(history)
+        if resume and (not path.is_file() or path.stat().st_size == 0):
+            return jsonify(error="恢复需要已有的非空 history，请先选择之前的会话"), 400
+    except (ValueError, OSError) as exc:
         return jsonify(error=str(exc)), 400
     if not model or len(model) > 200 or any(ord(char) < 32 or ord(char) == 127 for char in model):
         return jsonify(error="请输入有效模型名称（1–200 字符，不含控制字符）"), 400
@@ -1524,6 +1972,8 @@ def run():
         return jsonify(error="最大步数需为 1–1000，最大输出 tokens 需为 1–1048576 的整数"), 400
     if not RUN_LOCK.acquire(blocking=False):
         return jsonify(error="已有任务正在运行，请等待结束后再试"), 409
+    if resume:
+        text = RESUME_PROMPT + ("\n\nAdditional instructions:\n" + text if text.strip() else "")
     current = AgentRun(text, history, model, effort, max_steps, max_tokens)
     current.owner_session = getattr(g, "auth_id", None)
     try:
@@ -1538,6 +1988,11 @@ def run():
         if not still_authenticated:
             current.close()
             return jsonify(error="登录已失效，请重新解锁控制台"), 401
+        current.worker = threading.Thread(target=current.collect, name=f"agent-{current.id}", daemon=True)
+        current.worker.start()
+    except ValueError as exc:
+        current.close()
+        return jsonify(error=str(exc)), 400
     except Exception as exc:
         app.logger.exception("Could not start agent")
         current.close()
@@ -1546,8 +2001,6 @@ def run():
         current.stream(), content_type="application/x-ndjson; charset=utf-8",
         headers={"X-Accel-Buffering": "no"},
     )
-    # Also covers responses closed before the generator is first iterated.
-    response.call_on_close(current.close)
     return response
 
 
@@ -1600,5 +2053,12 @@ if __name__ == "__main__":
     if args.host not in {"127.0.0.1", "localhost", "::1"}:
         app.logger.warning("Non-loopback binding: this console can execute commands. "
                            "Use only on a trusted network with access controls.")
-    app.run(host=args.host, port=args.port, threaded=True, debug=False,
-            ssl_context=tls_context)
+    def terminate(_signal, _frame):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, terminate)
+    try:
+        app.run(host=args.host, port=args.port, threaded=True, debug=False,
+                ssl_context=tls_context)
+    finally:
+        shutdown_active_run()
