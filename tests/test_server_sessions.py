@@ -297,6 +297,90 @@ class SessionTests(unittest.TestCase):
         self.assertIn("resumed", records[-1]["content"])
         self.assertTrue(history.read_bytes().startswith(original))
 
+
+    def test_agent_cutoff_publishes_and_resumes_with_current_work_path(self):
+        """Exercise real Agent + server checkpointing with only the model mocked."""
+        history = self.temp / "session.jsonl"
+        original = (
+            json.dumps({"role": "user", "content": "原始任务" * 300}, ensure_ascii=False)
+            + "\n"
+        ).encode("utf-8")
+        history.write_bytes(original)
+        real_popen = subprocess.Popen
+        work_paths = []
+
+        def simulated_model(command, **kwargs):
+            work = Path(command[command.index("--history") + 1])
+            work_paths.append(work)
+            resuming = len(work_paths) == 2
+            # Small test-only limits: force the first cutoff, not another on resume.
+            args = command[1:] + ["--target-history-context-size", "10" if resuming else "1"]
+            script = (
+                "import json, runpy, sys, core.backends\n"
+                "from pathlib import Path\n"
+                f"work = Path({str(work)!r})\n"
+                f"resuming = {resuming!r}\n"
+                "class Backend:\n"
+                "    calls = 0\n"
+                "    def stream_response(self, messages, max_tokens):\n"
+                "        self.calls += 1\n"
+                "        assert self.calls == 1, 'unexpected summary/model request'\n"
+                "        assert work.is_file()\n"
+                "        assert str(work.resolve()) in messages[0]['content']\n"
+                "        notice = messages[1]['content']\n"
+                "        assert notice.startswith('[History cutoff]')\n"
+                "        assert str(work.resolve()) in notice\n"
+                "        assert 'lines 1-2 (1-based, inclusive)' in notice\n"
+                "        records = [json.loads(line) for line in work.read_text().splitlines()]\n"
+                "        assert records[2]['state'] == 'history_cutoff'\n"
+                "        if resuming:\n"
+                "            assert len(messages) == 4\n"
+                "            assert records[2]['content'] != notice, 'stale work path'\n"
+                "            assert 'outcome is unknown' in messages[-1]['content']\n"
+                "        else:\n"
+                "            assert len(messages) == 2\n"
+                "            assert records[2]['content'] == notice\n"
+                "        yield '<|final_answer|>done<\\\\final_answer|>'\n"
+                "core.backends.get_backend = lambda **kwargs: Backend()\n"
+                f"sys.argv = {args!r}\n"
+                "runpy.run_module('core.agent', run_name='__main__')\n"
+            )
+            return real_popen([sys.executable, "-u", "-c", script], **kwargs)
+
+        with patch.object(server.subprocess, "Popen", side_effect=simulated_model):
+            response = self.post("/run", dict(
+                input="continue", model="fake", history="session", max_steps="1",
+            ))
+            events = self.events(response)
+            response.close()
+            self.assertEqual(events[-1]["code"], 0, events)
+            first_run = events[0]["id"]
+            self.assertEqual(server.read_run(first_run)["status"], "completed")
+            self.assertFalse(work_paths[0].exists())
+            committed = history.read_bytes()
+            self.assertTrue(committed.startswith(original))
+            records = [json.loads(line) for line in committed.splitlines()]
+            self.assertEqual([r.get("state") for r in records], [
+                None, "user", "history_cutoff", "model",
+            ])
+            self.assertIn(str(work_paths[0].resolve()), records[2]["content"])
+            self.assertIn("lines 1-2 (1-based, inclusive)", records[2]["content"])
+
+            response = self.post("/run", dict(
+                model="fake", resume="1", history="session", max_steps="1",
+            ))
+            events = self.events(response)
+            response.close()
+            self.assertEqual(events[-1]["code"], 0, events)
+            self.assertEqual(server.read_run(events[0]["id"])["status"], "completed")
+            self.assertNotEqual(work_paths[0], work_paths[1])
+            self.assertFalse(work_paths[1].exists())
+            self.assertTrue(history.read_bytes().startswith(committed))
+            records = [json.loads(line) for line in history.read_bytes().splitlines()]
+            self.assertEqual(len(records), 6)
+            self.assertEqual([r.get("state") for r in records].count("history_cutoff"), 1)
+            self.assertNotIn("summary", [r.get("state") for r in records])
+
     def test_logout_still_stops_owned_run(self):
         response = self.start("import time; time.sleep(60)")
         current = server.ACTIVE_RUN
