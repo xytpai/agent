@@ -115,9 +115,9 @@ Never present model memory, estimates, or unverified claims as current action re
                     ):
                         # Load only the latest active segment, including its notice.
                         # Keep old summary checkpoints readable, but never create them.
-                        if item["role"] == "user" and item.get("state") in {
+                        if item["role"] == "user" and item.get("state") in (
                             HISTORY_CUTOFF_STATE, "summary",
-                        }:
+                        ):
                             history.clear()
                         if item["role"] == "user" and item.get("state") == HISTORY_CUTOFF_STATE:
                             # A resumed run may use a different working copy/path.
@@ -152,9 +152,10 @@ Never present model memory, estimates, or unverified claims as current action re
                 file.flush()
                 os.fsync(file.fileno())
         except OSError as exc:
-            if state == HISTORY_CUTOFF_STATE:
-                raise
             print(f"==== SYSTEM ==== Failed to save history: {exc}", flush=True)
+            # A later cutoff must never discard messages that were not persisted.
+            # Stop on any write/flush/fsync failure, not just a failed boundary.
+            raise
 
     def history_context_size(self) -> float:
         """History size in K characters (1K = 1000), excluding system messages."""

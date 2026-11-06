@@ -352,6 +352,59 @@ class AgentHistoryTests(unittest.TestCase):
         self.assertIn(json.dumps(str(path), ensure_ascii=False), notice)
         self.assertIn("lines 1-42 (1-based, inclusive)", notice)
 
+    def test_unknown_state_metadata_does_not_crash_or_create_boundary(self):
+        self.append("earlier context")
+        for state in ([], {}, ["history_cutoff"], {"type": "summary"}, None, 42, True):
+            self.append("ordinary message", state=state)
+        self.assertEqual(self.agent.load_history(), self.agent.memory)
+
+    def test_failed_request_write_stops_before_model_or_cutoff(self):
+        self.append("previous task")
+        original = self.history.read_bytes()
+        real_open = Path.open
+
+        def open_file(path, mode="r", *args, **kwargs):
+            if mode == "ab+":
+                raise OSError("request write failure")
+            return real_open(path, mode, *args, **kwargs)
+
+        with patch.object(Path, "open", open_file):
+            with self.assertRaisesRegex(OSError, "request write failure"):
+                self.agent.run("new task " * 200)
+        self.backend.stream_response.assert_not_called()
+        self.assertEqual(self.history.read_bytes(), original)
+        self.assertEqual(self.agent.memory[-1]["content"], "new task " * 200)
+        self.assertFalse(any(r.get("state") == HISTORY_CUTOFF_STATE for r in self.records()))
+
+    def test_failed_request_fsync_stops_before_model_or_cutoff(self):
+        with patch("core.agent.os.fsync", side_effect=OSError("request fsync failure")):
+            with self.assertRaisesRegex(OSError, "request fsync failure"):
+                self.agent.run("new task " * 200)
+        self.backend.stream_response.assert_not_called()
+        self.assertEqual(self.agent.memory[-1]["content"], "new task " * 200)
+        self.assertEqual([r["state"] for r in self.records()], ["user"])
+
+    def test_failed_observation_write_stops_before_next_model_or_cutoff(self):
+        self.respond_with(ACTION)
+        real_open = Path.open
+        appends = 0
+
+        def open_file(path, mode="r", *args, **kwargs):
+            nonlocal appends
+            if mode == "ab+":
+                appends += 1
+                if appends == 3:  # The tool observation, after request + action.
+                    raise OSError("observation write failure")
+            return real_open(path, mode, *args, **kwargs)
+
+        with patch.object(Path, "open", open_file), \
+                patch("core.agent.ActionRunner.__call__", return_value="x" * 1200):
+            with self.assertRaisesRegex(OSError, "observation write failure"):
+                self.agent.run("task")
+        self.assertEqual(len(self.requests), 1)
+        self.assertIn("x" * 1200, self.agent.memory[-1]["content"])
+        self.assertEqual([r["state"] for r in self.records()], ["user", "model"])
+
 
 if __name__ == "__main__":
     unittest.main()
