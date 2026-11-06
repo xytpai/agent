@@ -311,7 +311,7 @@ Available actions:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AToy: An agent create shit")
     parser.add_argument("--max_tokens", type=int, default=65536)
-    parser.add_argument("--max_steps", type=int, default=20)
+    parser.add_argument("--max_steps", type=int, default=2000)
     parser.add_argument("--input", type=str, default="None")
     parser.add_argument("--history", type=str, default="history")
     parser.add_argument("--effort", help="Reasoning level; defaults to REASONING_EFFORT or auto")
