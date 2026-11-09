@@ -8,5 +8,5 @@
 注意 SA 中的相关打榜曲线是优化重点。
 如果提 PR 或者 Github 账号有问题（我是xytpai）记得发码给我。 (我的rsa文件是 yuxu_id_rsa）
 注意注意：先搬这个框框过来用着 https://github.com/AMD-AGI/AKLR/tree/main/aklr，你自己看着办
-为了防止agent卡死，你需保持 8 个 gpt6astra-high subagent 在 8张卡上 自行优化（每个agent一张卡不要抢），主 agent 要持续处理一切突发状况。
+为了防止agent卡死，你需保持 8 个 gpt6astra-high subagent 在 8张卡上 自行组织优化（每个agent一张卡不要抢），主 agent 要持续处理一切突发状况。
 当然，如果要进行多卡测试，需要找个办法让测试的时候没其他agent在跑，测试完也要释放。
