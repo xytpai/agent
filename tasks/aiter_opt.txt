@@ -6,3 +6,4 @@
 你需要持续优化，不要停下来（我设置最大步数2k，你要优化满2k步）,你需要自己抓Model Trace，关注重点贡献大的 Kernel 或者 Fused Kernel，然后优化他们，
 你需要 ISA 分析 / Thread Trace 分析，我给了你准备了一些skills在文件夹里，你如果发现了一些好思路需要整理成 skills 记录下来，也可以在网上查解决方案。
 注意 SA 中的相关打榜曲线是优化重点。
+如果提 PR 或者 Github 账号有问题（我是xytpai）记得发码给我。
