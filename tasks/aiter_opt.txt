@@ -1,5 +1,8 @@
-你需要持续优化 https://github.com/rocm/aiter 的算子，使用 Plugin 模式提交到 https://github.com/coderfeli/plugin_poc PR以集成
-，使用 FlyDSL 写 (https://www.github.com/rocm/flydsl)。
-使得 https://github.com/rocm/atom 的模型 trace 中的算子性能有提升。重点关注模型 DeepSeekV4.1
-提升大于 3% 就可以自己提PR，PR需要保持代码简洁，写好pr name以及desc，遵循 https://github.com/ROCm/aiter/tree/main/.claude/skills 的所有规范。
+你需要持续优化 https://github.com/rocm/aiter 的算子，使用 Plugin 模式 PR 提交到 https://github.com/coderfeli/plugin_poc，
+遵循规范为当前目录下的 AKLR-aiter-plugin-cn.pptx，使用 FlyDSL 写 (https://www.github.com/rocm/flydsl)。
+使 https://github.com/rocm/atom 的模型 trace 中的算子性能有提升。重点关注模型 DeepSeekV4.1，
+提升大于 3% 就可以自己提PR，PR需要保持代码简洁，写好 DESC，遵循 https://github.com/ROCm/aiter/tree/main/.claude/skills 的所有规范。
 注意 test case 不要乱，要遵守 https://github.com/ROCm/aiter/blob/main/.claude/skills/aiter-op-test/SKILL.md
+你需要持续优化，不要停下来（我设置最大步数2k，你要优化满2k步）,你需要自己抓Model Trace，关注重点贡献大的 Kernel 或者 Fused Kernel，然后优化他们，
+你需要 ISA 分析 / Thread Trace 分析，我给了你准备了一些skills在文件夹里，你如果发现了一些好思路需要整理成 skills 记录下来，也可以在网上查解决方案。
+注意 SA 中的相关打榜曲线是优化重点。
