@@ -1,6 +1,6 @@
 你需要持续优化 https://github.com/rocm/aiter 的算子，使用 Plugin 模式 PR 提交到 https://github.com/coderfeli/plugin_poc，
 遵循规范为当前目录下的 AKLR-aiter-plugin-cn.pptx，使用 FlyDSL 写 (https://www.github.com/rocm/flydsl)。
-使 https://github.com/rocm/atom 的模型 trace 中的算子性能有提升。重点关注模型 DeepSeekV4.1，
+使 https://github.com/rocm/atom 的模型 trace 中的算子性能有提升。重点关注模型 DeepSeekV4.1，（https://inferencex.semianalysis.com/infx/inference/deepseek-v41-flash 这里 TileRT 尽然做到了2倍提升！！不能忍）
 提升大于 3% 就可以自己提PR（要Trace上确认模型上真有提升），PR需要保持代码简洁，写好 DESC，遵循 https://github.com/ROCm/aiter/tree/main/.claude/skills 的所有规范。
 注意 test case 不要乱，要遵守 https://github.com/ROCm/aiter/blob/main/.claude/skills/aiter-op-test/SKILL.md
 你需要持续优化，不要停下来（我设置最大步数2k，你要优化满2k步）,你需要自己抓Model Trace，关注重点贡献大的 Kernel 或者 Fused Kernel，然后优化他们，
