@@ -1,0 +1,14 @@
+你需要持续优化 https://github.com/rocm/aiter 的算子，使用 Plugin 模式 PR 提交到 https://github.com/coderfeli/plugin_poc，
+遵循规范请搜索该库，或者看下 AKLR-aiter-plugin-cn.pptx，如何接到aiter你自己看下aiter，使用 FlyDSL 写 (https://www.github.com/rocm/flydsl)。
+最终目标是 DeepSeekV4.1flash 的打榜（https://inferencex.semianalysis.com/infx/inference/deepseek-v41-flash）SA 上。你一定要让MI355在SA这个曲线表现变好。
+模型接入则使用 https://github.com/rocm/atom ，需要跑模型抓 trace 查看算子性能，需要提升或者新加fusion pattern / mega kernel。
+提升大于 3% 就可以自己提PR（要Trace上确认模型上真有提升），PR需要保持代码简洁，写好 DESC，遵循 https://github.com/ROCm/aiter/tree/main/.claude/skills 的所有规范。
+注意 test case 不要乱，要遵守 https://github.com/ROCm/aiter/blob/main/.claude/skills/aiter-op-test/SKILL.md
+你需要持续优化，不要停下来（我设置最大步数2k，你要优化满2k步）,你需要自己抓Model Trace，关注重点贡献大的 Kernel 或者 Fused Kernel，然后优化他们，或者就是自己写新Fusion或者优化\写mono/mega kernel。
+你需要 ISA 分析 / Thread Trace 分析，我给了你准备了一些skills在文件夹里，你如果发现了一些好思路需要整理成 skills 记录下来，也可以在网上查解决方案。
+注意 SA 中的相关打榜曲线是优化重点。
+如果提 PR 或者 Github 账号有问题（我是xytpai）记得发码给我。 (我的rsa文件是 yuxu_id_rsa）注意要什么让我填的东西先让我填好，我一般启动任务就去睡觉了。
+为了防止agent卡死，你需保持 8 个 gpt6astra-high subagent 在 8张卡上 自行组织优化（每个agent一张卡不要抢，任务不要重），主 agent 要持续处理一切突发状况。
+当然，如果要进行多卡测试，需要找个办法让测试的时候没其他agent在跑，测试完也要释放，然后其他要用的agent也能继续用。
+你不要试图去刷sa agentx那个很慢，你可以看提交信息，反正就让曲线变得更好看。
+重点关注Mega/Mono Kernel，plugin_poc 这个项目持续在更新，你也要不断更近最新代码。任务不要重了。
